@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  predictive-analytics-app:
+    build: .
+    container_name: predictive-analytics-app
+    ports:
+      - "8009:8009"
+    environment:
+      - PORT=8009
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.predictive-analytics.rule=PathPrefix(`/predictive-analytics`)"
+      - "traefik.http.services.predictive-analytics.loadbalancer.server.port=8009"
+
+
+networks:
+  nexus_network:
+    external: true

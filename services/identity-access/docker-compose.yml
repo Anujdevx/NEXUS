@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  identity-access-app:
+    build: .
+    container_name: identity-access-app
+    ports:
+      - "8005:8005"
+    environment:
+      - PORT=8005
+      - DATABASE_URL=postgres://user:password@identity-access-db:5432/identity-access?sslmode=disable
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.identity-access.rule=PathPrefix(`/identity-access`)"
+      - "traefik.http.services.identity-access.loadbalancer.server.port=8005"
+
+  identity-access-db:
+    image: postgres:15-alpine
+    container_name: identity-access-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=identity-access
+    volumes:
+      - identity-access-pg-data:/var/lib/postgresql/data
+    networks:
+      - nexus_network
+volumes:
+  identity-access-pg-data:
+
+networks:
+  nexus_network:
+    external: true

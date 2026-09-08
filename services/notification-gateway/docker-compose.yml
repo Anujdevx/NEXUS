@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  notification-gateway-app:
+    build: .
+    container_name: notification-gateway-app
+    ports:
+      - "8006:8006"
+    environment:
+      - PORT=8006
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.notification-gateway.rule=PathPrefix(`/notification-gateway`)"
+      - "traefik.http.services.notification-gateway.loadbalancer.server.port=8006"
+
+
+networks:
+  nexus_network:
+    external: true

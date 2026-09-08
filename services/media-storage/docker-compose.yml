@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  media-storage-app:
+    build: .
+    container_name: media-storage-app
+    ports:
+      - "8010:8010"
+    environment:
+      - PORT=8010
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.media-storage.rule=PathPrefix(`/media-storage`)"
+      - "traefik.http.services.media-storage.loadbalancer.server.port=8010"
+
+
+networks:
+  nexus_network:
+    external: true

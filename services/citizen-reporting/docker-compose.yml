@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  citizen-reporting-app:
+    build: .
+    container_name: citizen-reporting-app
+    ports:
+      - "8004:8004"
+    environment:
+      - PORT=8004
+      - DATABASE_URL=postgres://user:password@citizen-reporting-db:5432/citizen-reporting?sslmode=disable
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.citizen-reporting.rule=PathPrefix(`/citizen-reporting`)"
+      - "traefik.http.services.citizen-reporting.loadbalancer.server.port=8004"
+
+  citizen-reporting-db:
+    image: postgres:15-alpine
+    container_name: citizen-reporting-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=citizen-reporting
+    volumes:
+      - citizen-reporting-pg-data:/var/lib/postgresql/data
+    networks:
+      - nexus_network
+volumes:
+  citizen-reporting-pg-data:
+
+networks:
+  nexus_network:
+    external: true

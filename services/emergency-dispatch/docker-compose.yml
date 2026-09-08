@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  emergency-dispatch-app:
+    build: .
+    container_name: emergency-dispatch-app
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+      - DATABASE_URL=postgres://user:password@emergency-dispatch-db:5432/emergency-dispatch?sslmode=disable
+      - REDIS_URL=redis://emergency-dispatch-redis:6379/0
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.emergency-dispatch.rule=PathPrefix(`/emergency-dispatch`)"
+      - "traefik.http.services.emergency-dispatch.loadbalancer.server.port=8003"
+
+  emergency-dispatch-db:
+    image: postgres:15-alpine
+    container_name: emergency-dispatch-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=emergency-dispatch
+    volumes:
+      - emergency-dispatch-pg-data:/var/lib/postgresql/data
+    networks:
+      - nexus_network
+  emergency-dispatch-redis:
+    image: redis:7-alpine
+    container_name: emergency-dispatch-redis
+    volumes:
+      - emergency-dispatch-redis-data:/data
+    networks:
+      - nexus_network
+volumes:
+  emergency-dispatch-pg-data:
+  emergency-dispatch-redis-data:
+
+networks:
+  nexus_network:
+    external: true

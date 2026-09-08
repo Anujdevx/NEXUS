@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  iot-broker-app:
+    build: .
+    container_name: iot-broker-app
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - RABBITMQ_URL=amqp://guest:guest@iot-broker-rabbitmq:5672/
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.iot-broker.rule=PathPrefix(`/iot-broker`)"
+      - "traefik.http.services.iot-broker.loadbalancer.server.port=8002"
+
+  iot-broker-rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: iot-broker-rabbitmq
+    ports:
+      - "15672:15672" # Management UI
+    volumes:
+      - iot-broker-rmq-data:/var/lib/rabbitmq
+    networks:
+      - nexus_network
+volumes:
+  iot-broker-rmq-data:
+
+networks:
+  nexus_network:
+    external: true

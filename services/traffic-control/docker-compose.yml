@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  traffic-control-app:
+    build: .
+    container_name: traffic-control-app
+    ports:
+      - "8007:8007"
+    environment:
+      - PORT=8007
+      - REDIS_URL=redis://traffic-control-redis:6379/0
+    networks:
+      - nexus_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traffic-control.rule=PathPrefix(`/traffic-control`)"
+      - "traefik.http.services.traffic-control.loadbalancer.server.port=8007"
+
+  traffic-control-redis:
+    image: redis:7-alpine
+    container_name: traffic-control-redis
+    volumes:
+      - traffic-control-redis-data:/data
+    networks:
+      - nexus_network
+volumes:
+  traffic-control-redis-data:
+
+networks:
+  nexus_network:
+    external: true
