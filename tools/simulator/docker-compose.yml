@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  simulator:
+    build: .
+    container_name: nexus-simulator
+    environment:
+      - IOT_BROKER_URL=http://iot-broker-app:8002
+      - INTERVAL_SEC=2
+      - CHAOS_MIN_SEC=30
+      - CHAOS_MAX_SEC=60
+    networks:
+      - nexus_network
+    restart: unless-stopped
+
+networks:
+  nexus_network:
+    external: true
