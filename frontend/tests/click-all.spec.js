@@ -8,6 +8,9 @@ const VIEWS = ["overview", "incidents", "map", "routes", "hospitals", "pharmacie
 const CONTROLS = "main button, main select, main input, main textarea";
 
 test.beforeEach(async ({ context }) => {
+  // These tests click controls, not road data. Run on the built-in network (public/roads.json and Overpass refused),
+  // so each of the hundreds of page loads does not rebuild a 170,000-junction graph.
+  await context.route(/roads\.json|overpass/, (r) => r.abort());
   await context.addInitScript(() => { try { sessionStorage.setItem("nexus.booted", "1"); } catch { /* ignore */ } window.print = () => {}; });
 });
 
