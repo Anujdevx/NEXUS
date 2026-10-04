@@ -54,3 +54,13 @@ Where the spec was ambiguous or reality differed, this is what was chosen and wh
     graph-engine has the same network as the console.
 19. **`frontend/vite.config.js`** proxies `/api`, `/svc` and `/ws` to `NEXUS_GATEWAY` (default `http://localhost:8000`) for both
     `dev` and `preview`.
+20. **Seed files are mounted, not copied.** `scripts/seed.sh` runs the exporter; every service mounts `tools/seed/out` read-only at `/seed`
+    (the spec said "copies the outputs into each service's seed volume"). One directory, no drift. `seed.sh --reset` also publishes
+    `scenario.loaded` so a running system reloads its seed state.
+21. **The Playwright suite refuses `roads.json` and Overpass.** The suite clicks controls, not road data, and rebuilding the real
+    170,000-junction graph on each of hundreds of page loads made one view exceed its 240 s budget. It runs on the built-in network, as it
+    did before `roads.json` existed. Run it twice, with the backend reachable and with `NEXUS_GATEWAY` pointed at a dead port (frontend/README.md).
+22. **`compose` needs the root `.env`.** The scripts export it (`COMPOSE_ENV_FILES`). Running `docker compose` by hand without it falls back to
+    development defaults for secrets, which will not match the running stack. Use the scripts.
+23. **The production service worker no longer caches `/api`, `/svc` or `/ws`.** It cached every same-origin GET, which would have served stale
+    shared state to the live console (cache name bumped to v2 so old shells are dropped).
