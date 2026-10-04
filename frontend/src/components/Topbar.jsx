@@ -30,6 +30,7 @@ export default function Topbar() {
   const net = useStore((s) => s.net);
   const online = useStore((s) => s.online);
   const lang = useStore((s) => s.lang);
+  const live = useStore((s) => s.live);
   const t = useT();
   const waiting = useStore((s) => s.incidents).filter((i) => i.status === "Open");
   const [menu, setMenu] = useState(null);
@@ -46,6 +47,7 @@ export default function Topbar() {
       {controller && <button className="find" onClick={() => actions.setPalette(true)} aria-label="Search and commands"><Search /><span>Search or run a command</span><kbd>Ctrl K</kbd></button>}
       <div className="top-right">
         {controller && <ReplayBar />}
+        <span className="net" title={live ? "Connected to the Sūtra bus. Changes are shared with every service." : "Running on the local engine. No backend is connected."} style={{ cursor: "default" }}><i className="dot" style={{ background: live ? "var(--ok)" : "var(--tx3)" }} />{live ? "Live" : "Local"}</span>
         <button className={"net" + (net && online ? "" : " down")} onClick={() => actions.setNet(!net)} aria-pressed={!net} title={online ? "Test switch: cut or restore the mobile network" : "This device is really offline. Reconnect to deliver held requests."}><RadioTower /><span>{!online ? t("Device offline") : net ? t("Towers up") : t("Towers down")}</span></button>
         <button className="icon-btn lang" aria-label={lang === "hi" ? "Switch to English" : "हिंदी में बदलें"} title="English / हिंदी" onClick={() => actions.setLang(lang === "hi" ? "en" : "hi")}>{lang === "hi" ? "EN" : "हि"}</button>
         {controller && (

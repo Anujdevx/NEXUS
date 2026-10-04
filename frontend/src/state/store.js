@@ -4,6 +4,9 @@ import { useSyncExternalStore } from "react";
 import { HOSPITALS, SIMCAP, SCENARIOS, SHELTERS, UNITS, NODES, CLOSURES, FLOOD, CAPS, PHARMACIES, MEDICINES } from "../data/index.js";
 import { net, nearestNode, nearestEdge, edgesNear, edgeMid, shortest, distFrom, resolve, loadRoadnet, onNet, describe, hav, TRUE_SLOW } from "../engine/roadnet.js";
 import { inferFromRain } from "../engine/hazard.js";
+import * as api from "../api/client.js";
+import { startLive, reconnect, waitForAssignment, assignmentSeen } from "../api/live.js";
+import { CLIENT_ID } from "../api/config.js";
 
 const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } };
@@ -44,7 +47,8 @@ let state = {
   hosp: seedHosp(), shelters: SHELTERS.map((s) => ({ ...s, open: true })), units: UNITS.map((u) => ({ ...u })),
   audit: load("nexus.audit", []), bus: [], alerts: [], net: true, queue: load("nexus.queue", []), lastSos: null,
   role: "Controller", theme: load("nexus.theme", "dark"), layers: { ...LENSES.All }, lens: "All", base: "Matte",
-  route: null, selected: null, focus: null, toast: null, district: null, navOpen: false
+  route: null, selected: null, focus: null, toast: null, district: null, navOpen: false,
+  live: false, cascade: null, assets: {}
 };
 
 const subs = new Set();
@@ -58,11 +62,18 @@ const stamp = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", mi
 const ALLOWED = { Citizen: ["sos"], Responder: ["assignment", "map", "responders", "sos", "settings"] };
 export const canSee = (role, view) => !ALLOWED[role] || ALLOWED[role].includes(view);
 let seq = 0;
+const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const envelope = (entity, type, extra = {}) => ({ entity, type, geo: extra.geo ?? null, status: extra.status ?? null, capacity: extra.capacity ?? null, confidence: extra.confidence ?? 1, timestamp: now(), source: extra.source ?? "sutradhara" });
+/* The same envelope to the backend, in the background: never awaited, never blocks the UI. */
+const toBackend = (env, extra) => { if (api.isLive()) api.post("/events", { ...env, id: uid(), origin: CLIENT_ID, payload: extra.payload ?? null }).catch(() => {}); };
 function publish(entity, type, extra = {}) {
-  const env = { entity, type, geo: extra.geo ?? null, status: extra.status ?? null, capacity: extra.capacity ?? null, confidence: extra.confidence ?? 1, timestamp: now(), source: extra.source ?? "sutradhara" };
+  const env = envelope(entity, type, extra);
   set((s) => ({ bus: [{ ...env, _id: ++seq }, ...s.bus].slice(0, 120) }));
+  toBackend(env, extra);
   return env;
 }
+/* An event only the backend needs (for example a repair): mirrored when live, invisible offline. */
+function mirror(entity, type, extra = {}) { toBackend(envelope(entity, type, extra), extra); }
 function audit(action, detail) {
   set((s) => { const a = [{ id: Date.now() + "-" + ++seq, at: now(), actor: s.role, action, detail }, ...s.audit].slice(0, 300); save("nexus.audit", a); return { audit: a }; });
 }
@@ -139,7 +150,7 @@ export const actions = {
   go(view) { if (!canSee(state.role, view)) view = ALLOWED[state.role][0]; location.hash = "#/" + view; set({ view, navOpen: false, palette: false }); },
   toggleNav() { set((s) => ({ navOpen: !s.navOpen })); },
   setTheme(theme) { save("nexus.theme", theme); set({ theme }); },
-  setRole(role) { set({ role }); audit("Role changed", role); toast(`Signed in as ${role.toLowerCase()}`); if (role === "Citizen") actions.go("sos"); else if (role === "Responder") actions.go("assignment"); else if (!canSee(role, state.view) || state.view === "assignment") actions.go("overview"); },
+  setRole(role) { set({ role }); api.dropToken(); reconnect(); audit("Role changed", role); toast(`Signed in as ${role.toLowerCase()}`); if (role === "Citizen") actions.go("sos"); else if (role === "Responder") actions.go("assignment"); else if (!canSee(role, state.view) || state.view === "assignment") actions.go("overview"); },
   select(kind, id) { set({ selected: { kind, id } }); },
   closeDrawer() { set({ selected: null }); },
   focus(lat, lng, zoom = 14) { if (lat == null) return; set({ focus: { lat, lng, zoom, n: Date.now() } }); },
@@ -153,7 +164,7 @@ export const actions = {
   setScenario(id) {
     const all = scenarioIncidents(id);
     set({ scenario: id, incidents: all, all, clock: { ...state.clock, t: all.length * 10, max: all.length * 10, playing: false }, rain: 0, rainOn: [], reach: null, breaks: [], pick: null, flood: { stage: 0, playing: false }, race: null, stock: seedStock(), closures: closureMap(id), route: null, selected: null, units: UNITS.map((u) => ({ ...u })), hosp: seedHosp(), queue: [], lastSos: null });
-    publish("scenario", "loaded", { status: SCENARIOS[id].short });
+    publish("scenario", "loaded", { status: SCENARIOS[id].short, payload: { id } });
     audit("Scenario loaded", SCENARIOS[id].label);
     toast(`Loaded: ${SCENARIOS[id].label}`);
   },
@@ -162,7 +173,7 @@ export const actions = {
   toggleClosure(cid) {
     const on = !state.closures[cid];
     set((s) => ({ closures: { ...s.closures, [cid]: on } }));
-    publish("road_segment", "passability", { status: on ? CLOSURES[cid].kind : "open", geo: CLOSURES[cid].at, confidence: state.conf, source: "marga" });
+    publish("road_segment", "passability", { status: on ? CLOSURES[cid].kind : "open", geo: CLOSURES[cid].at, confidence: state.conf, source: "marga", payload: { kind: "closure", id: cid, active: on } });
     audit(on ? "Segment marked impassable" : "Segment reopened", CLOSURES[cid].n);
     actions.replan();
   },
@@ -193,6 +204,7 @@ export const actions = {
     const old = state.route;
     const prev = keepPrev && old && old.nexus && nexus && Math.abs(old.nexus.km - nexus.km) > 0.01 ? { coords: old.nexus.coords, km: old.nexus.km, min: old.nexus.min, dest: old.destLabel } : null;
     set({ race: null, route: { req, nexus, baseline, dest, destLabel: dest.name, baseLabel: (baseDest || dest).name, baseFull, alloc, pharm, prev, approved: false, n: Date.now() } });
+    if (api.isLive() && nexus) verifyRoute(req, dest, state.route.n);
     if (!quiet) { publish("route", "computed", { geo: [req.from.lat, req.from.lng], status: !nexus || nexus.blocked.length ? "cut_off" : "passable", confidence: ctx.conf, source: "marga" }); audit("Route computed", `${req.from.name} to ${dest.name}`); }
   },
   approveRoute() {
@@ -206,7 +218,7 @@ export const actions = {
       hosp: r.alloc ? { ...s.hosp, [r.alloc[0].h.id]: { ...s.hosp[r.alloc[0].h.id], inbound: s.hosp[r.alloc[0].h.id].inbound + 1 } } : s.hosp,
       shelters: r.req.mode === "shelter" ? s.shelters.map((x) => (x.n === r.destLabel ? { ...x, occ: Math.min(x.cap, x.occ + (r.req.people || 10)) } : x)) : s.shelters
     }));
-    publish("assignment", "dispatched", { geo: [r.req.from.lat, r.req.from.lng], status: unit.id, source: "dispatch" });
+    publish("assignment", "dispatched", { geo: [r.req.from.lat, r.req.from.lng], status: unit.id, source: "dispatch", payload: { kind: "approval", unit: unit.id, hospital: r.alloc ? r.alloc[0].h.id : undefined, shelter: r.req.mode === "shelter" ? (state.shelters.find((x) => x.n === r.destLabel) || {}).id : undefined, people: r.req.people || 10, from: r.req.from.name, to: r.destLabel } });
     audit("Route approved and dispatched", `${unit.id}: ${r.req.from.name} to ${r.destLabel}`);
     toast(`Dispatched ${unit.id} to ${r.req.from.name}`);
   },
@@ -227,17 +239,17 @@ export const actions = {
     if (!e || e.dist > 0.6) { toast("No road within 600 m of that point"); return; }
     const [la, ln] = edgeMid(e);
     set((s) => ({ breaks: [...s.breaks, { lat: la, lng: ln, name: e.name }], pick: null }));
-    publish("road_segment", "passability", { status: "closed", geo: [la, ln], confidence: state.conf, source: "marga/report" });
+    publish("road_segment", "passability", { status: "closed", geo: [la, ln], confidence: state.conf, source: "marga/report", payload: { kind: "break", op: "add", lat: la, lng: ln, name: e.name } });
     audit("Road reported broken", e.name);
     actions.replan(); toast(`${e.name} marked broken. Rerouting.`);
   },
   breakStep(i) { const st = state.route?.nexus?.steps[i]; if (!st) return; const e = net.edges[st.edges[Math.floor(st.edges.length / 2)]]; const [la, ln] = edgeMid(e); actions.addBreak(la, ln); },
-  removeBreak(i) { const b = state.breaks[i]; set((s) => ({ breaks: s.breaks.filter((_, k) => k !== i) })); audit("Road repaired", b.name); actions.replan(); },
-  clearBreaks() { if (!state.breaks.length) return; set({ breaks: [] }); audit("All reported breaks cleared", ""); actions.replan(); toast("All reported breaks cleared"); },
+  removeBreak(i) { const b = state.breaks[i]; set((s) => ({ breaks: s.breaks.filter((_, k) => k !== i) })); mirror("road_segment", "passability", { status: "open", geo: [b.lat, b.lng], source: "marga/report", payload: { kind: "break", op: "remove", lat: b.lat, lng: b.lng, name: b.name } }); audit("Road repaired", b.name); actions.replan(); },
+  clearBreaks() { if (!state.breaks.length) return; set({ breaks: [] }); mirror("road_segment", "passability", { status: "open", source: "marga/report", payload: { kind: "break", op: "clear" } }); audit("All reported breaks cleared", ""); actions.replan(); toast("All reported breaks cleared"); },
   /* ---------- flood that spreads ---------- */
   setFlood(stage) { set((s) => ({ flood: { ...s.flood, stage } })); actions.replan(); },
   playFlood(on) { if (on && state.flood.stage >= 100) set((s) => ({ flood: { ...s.flood, stage: 0 } })); set((s) => ({ flood: { ...s.flood, playing: on } })); if (!on) actions.commitFlood(); },
-  commitFlood() { const f = floodState(); publish("flood", "stage", { status: `${Math.round(state.flood.stage)}%`, confidence: 0.5, source: "purvasuchana" }); audit("Flood stage set", `${Math.round(state.flood.stage)}%: ${f.pools.length} localities under water, ${f.blocked.size} road segments broken`); },
+  commitFlood() { const f = floodState(); publish("flood", "stage", { status: `${Math.round(state.flood.stage)}%`, confidence: 0.5, source: "purvasuchana", payload: { stage: state.flood.stage } }); audit("Flood stage set", `${Math.round(state.flood.stage)}%: ${f.pools.length} localities under water, ${f.blocked.size} road segments broken`); },
 
   /* ---------- the race: Nexus against the nearest-hospital baseline, same start, same moment ---------- */
   startRace() {
@@ -284,13 +296,13 @@ export const actions = {
   async install() { const ev = window.__nexusInstall; if (!ev) { toast("Use the browser menu: Install app, or Add to Home Screen"); return; } ev.prompt(); await ev.userChoice; window.__nexusInstall = null; set({ installable: false }); },
 
   toggle3d() { set((s) => ({ three: !s.three })); },
-  adjustStock(pid, mid, delta) { set((s) => ({ stock: { ...s.stock, [pid]: { ...s.stock[pid], [mid]: Math.max(0, s.stock[pid][mid] + delta) } } })); const p = PHARMACIES.find((x) => x.id === pid); publish("pharmacy", "stock", { geo: [p.lat, p.lng], status: mid, capacity: { qty: state.stock[pid][mid] }, source: "arogya" }); },
-  setStock(pid, mid, qty) { set((s) => ({ stock: { ...s.stock, [pid]: { ...s.stock[pid], [mid]: qty } } })); const p = PHARMACIES.find((x) => x.id === pid); const m = MEDICINES.find((x) => x.id === mid); publish("pharmacy", "stock", { geo: [p.lat, p.lng], status: mid, capacity: { qty }, source: "arogya" }); audit(qty ? "Pharmacy restocked" : "Pharmacy out of stock", `${p.n}: ${m.n}`); },
+  adjustStock(pid, mid, delta) { set((s) => ({ stock: { ...s.stock, [pid]: { ...s.stock[pid], [mid]: Math.max(0, s.stock[pid][mid] + delta) } } })); const p = PHARMACIES.find((x) => x.id === pid); publish("pharmacy", "stock", { geo: [p.lat, p.lng], status: mid, capacity: { qty: state.stock[pid][mid] }, source: "arogya", payload: { id: pid, med: mid, qty: state.stock[pid][mid] } }); },
+  setStock(pid, mid, qty) { set((s) => ({ stock: { ...s.stock, [pid]: { ...s.stock[pid], [mid]: qty } } })); const p = PHARMACIES.find((x) => x.id === pid); const m = MEDICINES.find((x) => x.id === mid); publish("pharmacy", "stock", { geo: [p.lat, p.lng], status: mid, capacity: { qty }, source: "arogya", payload: { id: pid, med: mid, qty } }); audit(qty ? "Pharmacy restocked" : "Pharmacy out of stock", `${p.n}: ${m.n}`); },
   reloadNet() { set({ netInfo: { ...state.netInfo, label: "Loading the road network" } }); loadRoadnet(); },
   clearRoute() { set({ route: null, race: null }); },
 
   /* ---------------- incidents ---------------- */
-  ackIncident(id) { set((s) => ({ incidents: s.incidents.map((i) => (i.id === id && i.status === "Open" ? { ...i, status: "Acknowledged", log: [...(i.log || []), ["Acknowledged", stamp()]] } : i)) })); const i = state.incidents.find((x) => x.id === id); publish("incident", "acknowledged", { geo: [i.lat, i.lng] }); audit("Incident acknowledged", i.n); toast("Acknowledged"); },
+  ackIncident(id) { set((s) => ({ incidents: s.incidents.map((i) => (i.id === id && i.status === "Open" ? { ...i, status: "Acknowledged", log: [...(i.log || []), ["Acknowledged", stamp()]] } : i)) })); const i = state.incidents.find((x) => x.id === id); publish("incident", "acknowledged", { geo: [i.lat, i.lng], payload: { id, unit: i.unit || "" } }); audit("Incident acknowledged", i.n); toast("Acknowledged"); },
   dispatchIncident(id) {
     const i = state.incidents.find((x) => x.id === id);
     const at = { name: i.place, lat: i.lat, lng: i.lng };
@@ -302,26 +314,26 @@ export const actions = {
     if (!unit) { toast("No unit is available. Release a unit first."); return; }
     set((s) => ({ incidents: s.incidents.map((x) => (x.id === id ? { ...x, status: "Unit assigned", unit: unit.id, log: [...(x.log || []), [`${unit.id} assigned`, stamp()]] } : x)), units: s.units.map((u) => (u.id === unit.id ? { ...u, status: "On mission", task: i.n } : u)) }));
     actions.computeRoute({ from: P(unit.node), mode: "place", to: at, need: "General" }, true);
-    publish("assignment", "dispatched", { geo: [i.lat, i.lng], status: unit.id, source: "dispatch" });
+    publish("assignment", "dispatched", { geo: [i.lat, i.lng], status: unit.id, source: "dispatch", payload: { kind: "approval", unit: unit.id, incidentId: id, from: i.place, to: i.n } });
     audit("Unit dispatched", `${unit.id} to ${i.n}`);
     toast(`Dispatched ${unit.id}`);
   },
   closeIncident(id) {
     const i = state.incidents.find((x) => x.id === id);
     set((s) => ({ incidents: s.incidents.map((x) => (x.id === id ? { ...x, status: "Closed", log: [...(x.log || []), ["Closed", stamp()]] } : x)), units: s.units.map((u) => (u.id === i.unit ? { ...u, status: "Available", task: "" } : u)) }));
-    publish("incident", "closed", { geo: [i.lat, i.lng] }); audit("Incident closed", i.n); toast("Incident closed");
+    publish("incident", "closed", { geo: [i.lat, i.lng], payload: { id, unit: i.unit || "" } }); audit("Incident closed", i.n); toast("Incident closed");
   },
 
   /* ---------------- Ārogya, Āśraya, Rakṣaka ---------------- */
-  toggleDivert(hid) { set((s) => ({ hosp: { ...s.hosp, [hid]: { ...s.hosp[hid], divert: !s.hosp[hid].divert } } })); const h = HOSPITALS.find((x) => x.id === hid); publish("hospital", "capacity", { geo: [h.lat, h.lng], status: state.hosp[hid].divert ? "diverting" : "accepting", capacity: { free: state.hosp[hid].free }, source: "arogya" }); audit(state.hosp[hid].divert ? "Hospital set to divert" : "Hospital accepting again", h.n); },
-  adjustBeds(hid, delta) { set((s) => { const x = s.hosp[hid]; return { hosp: { ...s.hosp, [hid]: { ...x, free: Math.max(0, Math.min(x.cap, x.free + delta)) } } }; }); const h = HOSPITALS.find((x) => x.id === hid); publish("hospital", "capacity", { geo: [h.lat, h.lng], capacity: { free: state.hosp[hid].free }, source: "arogya" }); },
-  adjustShelter(id, delta) { set((s) => ({ shelters: s.shelters.map((x) => (x.id === id ? { ...x, occ: Math.max(0, Math.min(x.cap, x.occ + delta)) } : x)) })); const sh = state.shelters.find((x) => x.id === id); publish("shelter", "occupancy", { geo: [sh.lat, sh.lng], capacity: { cap: sh.cap, occ: sh.occ }, status: sh.occ >= sh.cap ? "full" : "open", source: "ashraya" }); if (sh.occ >= sh.cap) audit("Shelter reached capacity", sh.n); },
-  toggleShelter(id) { set((s) => ({ shelters: s.shelters.map((x) => (x.id === id ? { ...x, open: !x.open } : x)) })); const sh = state.shelters.find((x) => x.id === id); publish("shelter", "status", { geo: [sh.lat, sh.lng], status: sh.open ? "open" : "closed", source: "ashraya" }); audit(sh.open ? "Shelter opened" : "Shelter closed", sh.n); },
-  setUnit(id, status) { set((s) => ({ units: s.units.map((u) => (u.id === id ? { ...u, status, task: status === "Available" ? "" : u.task || "Manual tasking" } : u)) })); const u = state.units.find((x) => x.id === id); publish("unit", "status", { geo: NODES[u.node].slice(0, 2), status, source: "rakshaka" }); audit("Unit status changed", `${id}: ${status}`); },
+  toggleDivert(hid) { set((s) => ({ hosp: { ...s.hosp, [hid]: { ...s.hosp[hid], divert: !s.hosp[hid].divert } } })); const h = HOSPITALS.find((x) => x.id === hid); publish("hospital", "capacity", { geo: [h.lat, h.lng], status: state.hosp[hid].divert ? "diverting" : "accepting", capacity: { free: state.hosp[hid].free }, source: "arogya", payload: { id: hid, divert: state.hosp[hid].divert, free: state.hosp[hid].free } }); audit(state.hosp[hid].divert ? "Hospital set to divert" : "Hospital accepting again", h.n); },
+  adjustBeds(hid, delta) { set((s) => { const x = s.hosp[hid]; return { hosp: { ...s.hosp, [hid]: { ...x, free: Math.max(0, Math.min(x.cap, x.free + delta)) } } }; }); const h = HOSPITALS.find((x) => x.id === hid); publish("hospital", "capacity", { geo: [h.lat, h.lng], capacity: { free: state.hosp[hid].free }, source: "arogya", payload: { id: hid, free: state.hosp[hid].free } }); },
+  adjustShelter(id, delta) { set((s) => ({ shelters: s.shelters.map((x) => (x.id === id ? { ...x, occ: Math.max(0, Math.min(x.cap, x.occ + delta)) } : x)) })); const sh = state.shelters.find((x) => x.id === id); publish("shelter", "occupancy", { geo: [sh.lat, sh.lng], capacity: { cap: sh.cap, occ: sh.occ }, status: sh.occ >= sh.cap ? "full" : "open", source: "ashraya", payload: { id, occ: sh.occ } }); if (sh.occ >= sh.cap) audit("Shelter reached capacity", sh.n); },
+  toggleShelter(id) { set((s) => ({ shelters: s.shelters.map((x) => (x.id === id ? { ...x, open: !x.open } : x)) })); const sh = state.shelters.find((x) => x.id === id); publish("shelter", "status", { geo: [sh.lat, sh.lng], status: sh.open ? "open" : "closed", source: "ashraya", payload: { id, open: sh.open } }); audit(sh.open ? "Shelter opened" : "Shelter closed", sh.n); },
+  setUnit(id, status) { set((s) => ({ units: s.units.map((u) => (u.id === id ? { ...u, status, task: status === "Available" ? "" : u.task || "Manual tasking" } : u)) })); const u = state.units.find((x) => x.id === id); publish("unit", "status", { geo: NODES[u.node].slice(0, 2), status, source: "rakshaka", payload: { id, status, task: u.task } }); audit("Unit status changed", `${id}: ${status}`); },
 
   /* ---------------- Pūrvasūchanā ---------------- */
   issueAlert({ area, severity, message }) {
-    const env = publish("public_alert", "cap_alert", { status: severity, source: "purvasuchana" });
+    const env = publish("public_alert", "cap_alert", { status: severity, source: "purvasuchana", payload: { area, severity, message, by: state.role } });
     set((s) => ({ alerts: [{ id: Date.now(), area, severity, message, at: env.timestamp, by: s.role }, ...s.alerts] }));
     audit("Public alert issued", `${severity}: ${area}`); toast("Alert issued");
   },
@@ -335,7 +347,10 @@ export const actions = {
     actions.deliverSos(sos, "direct");
   },
   flushQueue(via = "peer relay") { const q = state.queue; set({ queue: [] }); save("nexus.queue", []); q.forEach((s) => actions.deliverSos(s, via)); if (q.length) toast(`${q.length} held SOS delivered via ${via}`); },
-  deliverSos(sos, via) {
+  /* Live: the backend ranks hospitals and assigns the ambulance, and the assignment comes back on the bus.
+     Backend unreachable, or no assignment within 5 s: the local logic below runs exactly as before. */
+  deliverSos(sos, via) { if (api.isLive()) remoteSos(sos, via); else actions.deliverSosLocal(sos, via); },
+  deliverSosLocal(sos, via) {
     const need = sos.injured === "Yes" ? "Trauma" : "General";
     const at = { key: "flood:" + sos.place, name: sos.placeName, lat: sos.lat, lng: sos.lng };
     const alloc = rankOnNet(at, need);
@@ -380,16 +395,20 @@ export const actions = {
 
   /* ---------------- Pūrvasūchanā what-if, reach, bulk actions ---------------- */
   setRain(mm) {
-    const want = inferFromRain(mm);
+    const want = inferFromRain(mm), prevOn = [...state.rainOn];
     set((s) => {
       const closures = { ...s.closures };
       const rainOn = s.rainOn.filter((c) => { if (want.includes(c)) return true; closures[c] = false; return false; });
       want.forEach((c) => { if (!closures[c]) { closures[c] = true; rainOn.push(c); } });
       return { rain: mm, closures, rainOn };
     });
+    /* the console decides which closures the rain turned on or off; the backend learns exactly that */
+    const before = new Set(prevOn), after = new Set(state.rainOn);
+    after.forEach((c) => { if (!before.has(c)) mirror("road_segment", "passability", { status: CLOSURES[c].kind, geo: CLOSURES[c].at, confidence: 0.5, source: "purvasuchana", payload: { kind: "closure", id: c, active: true, inferred: true } }); });
+    before.forEach((c) => { if (!after.has(c)) mirror("road_segment", "passability", { status: "open", geo: CLOSURES[c].at, confidence: 0.5, source: "purvasuchana", payload: { kind: "closure", id: c, active: false, inferred: true } }); });
     actions.replan();
   },
-  commitRain() { publish("rainfall", "what_if", { status: `${state.rain} mm`, confidence: 0.5, source: "purvasuchana" }); audit("Rainfall what-if set", `${state.rain} mm, ${state.rainOn.length} segments inferred`); },
+  commitRain() { publish("rainfall", "what_if", { status: `${state.rain} mm`, confidence: 0.5, source: "purvasuchana", payload: { mm: state.rain } }); audit("Rainfall what-if set", `${state.rain} mm, ${state.rainOn.length} segments inferred`); },
   setReach(id) { set({ reach: id }); if (id) { const h = HOSPITALS.find((x) => x.id === id); set({ selected: null }); actions.showOnMap(h.lat, h.lng, 11.5); } },
   ackAll() { const n = state.incidents.filter((i) => i.status === "Open").length; if (!n) { toast("Nothing is waiting for acknowledgement"); return; } set((s) => ({ incidents: s.incidents.map((i) => (i.status === "Open" ? { ...i, status: "Acknowledged", log: [...(i.log || []), ["Acknowledged", stamp()]] } : i)) })); audit("Incidents acknowledged", `${n} in one action`); toast(`${n} acknowledged`); },
   reassign(id) {
@@ -400,11 +419,13 @@ export const actions = {
     actions.dispatchIncident(id);
     set((s) => ({ units: s.units.map((u) => (u.id === old ? { ...u, status: "Available" } : u)) }));
   },
-  returnAll() { set((s) => ({ units: s.units.map((u) => ({ ...u, status: "Available", task: "" })) })); publish("unit", "status", { status: "all_available", source: "rakshaka" }); audit("All units returned to base", `${state.units.length} units`); toast("All units are available"); },
-  unitStep(id, step) { set((s) => ({ units: s.units.map((u) => (u.id === id ? (step === "Free" ? { ...u, status: "Available", task: "", step: null } : { ...u, step }) : u)) })); publish("unit", "progress", { status: step, source: "rakshaka" }); audit("Responder update", `${id}: ${step}`); toast(`${id}: ${step.toLowerCase()}`); },
+  returnAll() { set((s) => ({ units: s.units.map((u) => ({ ...u, status: "Available", task: "" })) })); publish("unit", "status", { status: "all_available", source: "rakshaka", payload: { all: true } }); audit("All units returned to base", `${state.units.length} units`); toast("All units are available"); },
+  unitStep(id, step) { set((s) => ({ units: s.units.map((u) => (u.id === id ? (step === "Free" ? { ...u, status: "Available", task: "", step: null } : { ...u, step }) : u)) })); publish("unit", "progress", { status: step, source: "rakshaka", payload: { id, step } }); audit("Responder update", `${id}: ${step}`); toast(`${id}: ${step.toLowerCase()}`); },
   resetAll() { try { localStorage.removeItem("nexus.audit"); localStorage.removeItem("nexus.settings"); localStorage.removeItem("nexus.rail"); } catch { /* ignore */ } set({ audit: [], bus: [], alerts: [], settings: { ...DEFAULTS }, rail: false, net: true, role: "Controller" }); actions.setScenario(start); toast("Everything reset"); },
 
-  clearAudit() { save("nexus.audit", []); set({ audit: [] }); toast("Audit trail cleared"); }
+  clearAudit() { save("nexus.audit", []); set({ audit: [] }); toast("Audit trail cleared"); },
+  /* Prāṇadhārā demo: heal every simulated utility; the backend publishes the recoveries and hospitals accept again. */
+  async restoreUtilities() { try { await api.post("/topology/reset"); set({ cascade: null, assets: {} }); toast("Utilities restored"); audit("Utilities restored", "Simulated power, water and telecom assets"); } catch { toast("The backend is not reachable"); } }
 };
 
 window.addEventListener("hashchange", () => { const v = hashView(); if (v !== state.view) set({ view: v }); });
@@ -425,6 +446,177 @@ setInterval(() => {
   actions.setClock(t);
   if (t >= c.max) set((s) => ({ clock: { ...s.clock, playing: false } }));
 }, 250);
+
+
+/* ---------------- the live bus (CLAUDE.md §8) ----------------
+   Everything below is inert when no backend answers: the console keeps running on its local engines. */
+const pendingSos = new Map(); // SOS ids this tab raised, waiting for their assignment
+const hospRow = (r) => r && { h: HOSPITALS.find((x) => x.id === r.id), min: r.min == null ? Infinity : r.min, reachable: r.reachable, capable: r.capable, free: r.free, inbound: r.inbound, cost: r.cost };
+
+async function remoteSos(sos, via) {
+  pendingSos.set(sos.id, { sos, via });
+  const seen = waitForAssignment(sos.id, 5000);
+  try { await api.post("/sos", { ...sos, via, client: CLIENT_ID }); }
+  catch { assignmentSeen(sos.id); pendingSos.delete(sos.id); actions.deliverSosLocal(sos, via); return; }
+  if (!(await seen)) { pendingSos.delete(sos.id); actions.deliverSosLocal(sos, via); }
+}
+
+/* The local engine draws the route at once. When the backend graph is the same network, the backend plans it too;
+   a route it confirms is marked, a difference is logged and the local route stands. */
+let backendNet = { at: 0, ok: false };
+async function sameNetwork() {
+  if (Date.now() - backendNet.at < 30000) return backendNet.ok;
+  try { const i = await api.get("/graph/network"); backendNet = { at: Date.now(), ok: i.source === net.source && i.nodes === net.lat.length && i.edges === net.edges.length }; }
+  catch { backendNet = { at: Date.now(), ok: false }; }
+  return backendNet.ok;
+}
+async function verifyRoute(req, dest, stamp) {
+  try {
+    if (!(await sameNetwork())) return;
+    const r = await api.post("/routes/plan", { from: { lat: req.from.lat, lng: req.from.lng }, to: { lat: dest.lat, lng: dest.lng }, closures: [...activeSet()], breaks: state.breaks.map((b) => ({ lat: b.lat, lng: b.lng })), flood: state.flood.stage, conf: state.conf });
+    const cur = state.route;
+    if (!cur || cur.n !== stamp || !cur.nexus) return;
+    if (Math.abs(r.min - cur.nexus.min) < 0.05 && r.edges.length === cur.nexus.edges.length) set({ route: { ...cur, nexus: { ...cur.nexus, backend: true } } });
+    else console.warn("[nexus] backend and local routes differ; keeping the local route", { backend: r.min, local: cur.nexus.min });
+  } catch { /* backend unreachable: the local route stands */ }
+}
+
+const patchIncident = (id, f) => set((s) => ({ incidents: s.incidents.map((i) => (i.id === id ? f(i) : i)) }));
+
+/* One incoming envelope becomes the same set() patches the local actions make. Our own envelopes never come back. */
+function applyRemote(env) {
+  if (!env || env.origin === CLIENT_ID) return;
+  set((s) => ({ bus: [{ ...env, _id: ++seq }, ...s.bus].slice(0, 120) }));
+  const p = env.payload || {};
+  switch (env.entity + "." + env.type) {
+    case "hospital.capacity":
+      if (p.id && state.hosp[p.id]) {
+        const was = state.hosp[p.id].divert;
+        set((s) => ({ hosp: { ...s.hosp, [p.id]: { ...s.hosp[p.id], ...(p.free != null ? { free: p.free } : {}), ...(p.inbound != null ? { inbound: p.inbound } : {}), ...(p.divert != null ? { divert: p.divert } : {}) } } }));
+        if (p.divert != null && p.divert !== was) {
+          const h = HOSPITALS.find((x) => x.id === p.id);
+          if (p.divert && p.reason) { toast(`${h.n} set to divert: ${p.reason}`); audit("Hospital set to divert", `${h.n}: ${p.reason}`); }
+          actions.replan();
+        }
+      }
+      break;
+    case "unit.status":
+      if (p.all) set((s) => ({ units: s.units.map((u) => ({ ...u, status: "Available", task: "", step: null })) }));
+      else if (p.id) set((s) => ({ units: s.units.map((u) => (u.id === p.id ? { ...u, status: p.status ?? u.status, task: p.task ?? u.task, step: p.step ?? (p.status === "Available" ? null : u.step) } : u)) }));
+      break;
+    case "unit.progress":
+      if (p.id) set((s) => ({ units: s.units.map((u) => (u.id === p.id ? (p.step === "Free" ? { ...u, status: "Available", task: "", step: null } : { ...u, step: p.step }) : u)) }));
+      break;
+    case "shelter.occupancy":
+    case "shelter.status":
+      if (p.id) set((s) => ({ shelters: s.shelters.map((x) => (x.id === p.id ? { ...x, ...(p.occ != null ? { occ: p.occ } : {}), ...(p.open != null ? { open: p.open } : {}) } : x)) }));
+      break;
+    case "pharmacy.stock":
+      if (p.id && p.med && state.stock[p.id]) set((s) => ({ stock: { ...s.stock, [p.id]: { ...s.stock[p.id], [p.med]: p.qty } } }));
+      break;
+    case "sos.request":
+      if (p.incident && !state.incidents.some((i) => i.id === p.incident.id)) {
+        set((s) => ({ incidents: [p.incident, ...s.incidents] }));
+        if (p.client !== CLIENT_ID) toast(`SOS received: ${p.hazard}, ${p.people} people, ${p.placeName}`);
+      }
+      break;
+    case "assignment.dispatched": {
+      if (p.kind !== "sos") break;
+      const mine = p.client === CLIENT_ID && pendingSos.has(p.incidentId);
+      const row = hospRow(p.hospital);
+      const had = state.incidents.some((i) => i.id === p.incidentId);
+      if (!had && mine) { // the assignment overtook the incident: build it from what this tab sent
+        const { sos } = pendingSos.get(p.incidentId);
+        set((s) => ({ incidents: [{ id: sos.id, t: "SOS", n: `SOS: ${sos.hazard}, ${sos.people} people`, place: sos.placeName, sev: sos.injured === "Yes" ? "High" : "Medium", lat: sos.lat, lng: sos.lng, node: sos.node, d: "Raised from a citizen device.", s: [], sim: true, status: "Open", unit: null, when: "just now", log: [["Raised on a citizen device", stamp()]] }, ...s.incidents] }));
+      }
+      patchIncident(p.incidentId, (i) => ({ ...i, status: p.unit ? "Unit assigned" : i.status, unit: p.unit || i.unit, log: [...(i.log || []), [p.unit ? `${p.unit} assigned, going to ${row?.h?.n}` : "No ambulance free; queued", stamp()]] }));
+      if (mine) {
+        const { sos, via } = pendingSos.get(p.incidentId);
+        const at = { key: "flood:" + sos.place, name: sos.placeName, lat: sos.lat, lng: sos.lng };
+        set((s) => ({ lastSos: { sos, stage: "dispatched", via, hospital: row, baseline: { h: HOSPITALS.find((x) => x.id === p.baseline?.id) || row.h }, unit: p.unit || null } }));
+        set((s) => ({ planner: { ...s.planner, from: at, mode: "hospital", need: p.need } }));
+        actions.computeRoute({ from: at, mode: "hospital", need: p.need }, true);
+        audit("SOS received and assigned", `${sos.placeName}: ${row?.h?.n}${p.unit ? ", " + p.unit : ""}`);
+        pendingSos.delete(p.incidentId);
+        assignmentSeen(p.incidentId);
+      } else audit("SOS assigned (from the bus)", `${p.placeName || p.incidentId}: ${row?.h?.n}${p.unit ? ", " + p.unit : ""}`);
+      break;
+    }
+    case "incident.acknowledged":
+    case "incident.closed":
+      if (p.id) {
+        const closed = env.type === "closed";
+        patchIncident(p.id, (i) => ({ ...i, status: closed ? "Closed" : i.status === "Open" ? "Acknowledged" : i.status }));
+        if (closed && p.unit) set((s) => ({ units: s.units.map((u) => (u.id === p.unit ? { ...u, status: "Available", task: "" } : u)) }));
+      }
+      break;
+    case "road_segment.passability":
+      if (p.kind === "closure" && CLOSURES[p.id]) { set((s) => ({ closures: { ...s.closures, [p.id]: !!p.active } })); actions.replan(); }
+      else if (p.kind === "break") {
+        if (p.op === "add" && !state.breaks.some((b) => hav(b.lat, b.lng, p.lat, p.lng) < 0.03)) set((s) => ({ breaks: [...s.breaks, { lat: p.lat, lng: p.lng, name: p.name || "Reported road" }] }));
+        else if (p.op === "remove") set((s) => ({ breaks: s.breaks.filter((b) => hav(b.lat, b.lng, p.lat, p.lng) >= 0.05) }));
+        else if (p.op === "clear") set({ breaks: [] });
+        actions.replan();
+      }
+      break;
+    case "flood.stage":
+      if (p.stage != null && !state.flood.playing) { set((s) => ({ flood: { ...s.flood, stage: p.stage } })); actions.replan(); }
+      break;
+    case "public_alert.cap_alert":
+      if (p.area) {
+        set((s) => ({ alerts: [{ id: p.id || Date.now(), area: p.area, severity: p.severity, message: (s.lang === "hi" && p.message_hi) || p.message, at: env.timestamp, by: p.by || "system" }, ...s.alerts] }));
+        toast(`Public alert: ${p.severity}, ${p.area}`);
+      }
+      break;
+    case "asset.status":
+      if (p.id) set((s) => { const a = { ...s.assets }; if (p.status === "ACTIVE") delete a[p.id]; else a[p.id] = p; return { assets: a, cascade: Object.keys(a).length ? s.cascade : null }; });
+      break;
+    case "cascade.computed":
+      set({ cascade: p });
+      toast(`Infrastructure cascade: ${p.rootName || p.root} failed, ${Math.max(0, (p.failed || []).length - 1)} more failed, ${(p.degraded || []).length} degraded`);
+      audit("Infrastructure cascade", `${p.rootName || p.root}: ${(p.failed || []).length} failed, ${(p.degraded || []).length} degraded`);
+      break;
+    default: break;
+  }
+}
+
+/* On (re)connect, take the shared state from the backend: it is the one picture every console and service agrees on. */
+async function hydrate() {
+  try {
+    const [h, u, sh, ph] = await Promise.all([api.get("/hospitals"), api.get("/units"), api.get("/shelters"), api.get("/pharmacies")]);
+    set((s) => {
+      const hosp = { ...s.hosp };
+      (h.items || []).forEach((x) => { if (hosp[x.id]) hosp[x.id] = { cap: x.cap, free: x.free, inbound: x.inbound, divert: x.divert }; });
+      const byU = Object.fromEntries((u.items || []).map((x) => [x.id, x]));
+      const stock = { ...s.stock };
+      (ph.items || []).forEach((r) => { if (r.p && r.p.stock && stock[r.p.id]) stock[r.p.id] = { ...stock[r.p.id], ...r.p.stock }; });
+      const byS = Object.fromEntries((sh.items || []).map((x) => [x.id, x]));
+      return {
+        hosp, stock,
+        units: s.units.map((x) => (byU[x.id] ? { ...x, status: byU[x.id].status, task: byU[x.id].task, step: byU[x.id].step ?? null } : x)),
+        shelters: s.shelters.map((x) => (byS[x.id] ? { ...x, occ: byS[x.id].occ, open: byS[x.id].open } : x))
+      };
+    });
+  } catch { /* backend went away mid-sync: keep what we have */ }
+  try {
+    const r = await api.get("/roads/state");
+    set((s) => ({ closures: Object.fromEntries(Object.keys(s.closures).map((c) => [c, (r.closures || []).includes(c)])), breaks: (r.breaks || []).map((b) => ({ lat: b.lat, lng: b.lng, name: b.name || "Reported road" })) }));
+    actions.replan();
+  } catch { /* no road state */ }
+  try {
+    if (state.role === "Citizen") throw new Error("citizens do not read incidents");
+    const inc = await api.get("/incidents");
+    const have = new Set(state.incidents.map((i) => i.id));
+    const fresh = (inc.items || []).filter((i) => i.sim && !have.has(i.id));
+    if (fresh.length) set((s) => ({ incidents: [...fresh, ...s.incidents] }));
+  } catch { /* role may not read incidents */ }
+  try {
+    const a = await api.get("/topology/assets");
+    set({ assets: Object.fromEntries((a.items || []).filter((x) => x.status !== "ACTIVE").map((x) => [x.id, x])) });
+  } catch { /* no topology */ }
+}
+
+startLive({ getRole: () => state.role, onEnvelope: applyRemote, onStatus: (live) => set({ live }), onConnected: hydrate });
 
 /* Road network: usable at once on the built-in graph, upgraded when real roads arrive. */
 onNet(() => { set({ netInfo: describe() }); memo = { key: "", rows: null }; if (state.route) actions.computeRoute(state.route.req, true); });

@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { actions } from "../state/store.js";
+import { actions, useStore } from "../state/store.js";
 import { INFRA, SLIDES } from "../data/index.js";
-import { Panel, Seg, Sourced, Srcs } from "../components/ui.jsx";
+import { Panel, Seg, Simulated, Sourced, Srcs } from "../components/ui.jsx";
 
 export default function Infrastructure() {
   const [kind, setKind] = useState("All");
+  const cascade = useStore((s) => s.cascade);
+  const assets = useStore((s) => s.assets);
+  const nm = (id) => assets[id]?.name || id;
   const list = INFRA.filter((i) => kind === "All" || i.kind === kind);
   return (
     <>
@@ -12,6 +15,18 @@ export default function Infrastructure() {
         <div><h1>Infrastructure</h1><p>Roads, crossings and buildings that have failed or been flagged. “Not verified” means no source confirms the present state, so check before relying on it.</p></div>
         <Seg label="Kind" options={["All", "Bridge", "Road", "Building"]} value={kind} onChange={setKind} />
       </div>
+      {cascade && (
+        <>
+          <Panel title={`Lifeline cascade from ${cascade.rootName || cascade.root}`} right={<Simulated />}>
+            <p className="dim">Power, water and telecom assets are simulated. {(cascade.failed || []).length} failed, {(cascade.degraded || []).length} degraded. A hospital that loses power goes into divert, and new SOS requests are routed to the next best one.</p>
+            <div className="rows">{(cascade.waves || []).map((w, i) => (
+              <div key={i}><span className="grow"><b>Wave {i + 1}</b><small>{w.map((id) => `${nm(id)} (${(assets[id]?.status || "").toLowerCase()})`).join(", ")}</small></span></div>
+            ))}</div>
+            <div className="rowx" style={{ marginTop: 10 }}><button className="btn" onClick={actions.restoreUtilities}>Restore utilities</button></div>
+          </Panel>
+          <div style={{ height: 16 }} />
+        </>
+      )}
       <Panel title={`${list.length} records`} right={<Sourced />} flush>
         <div className="tscroll"><table>
           <thead><tr><th>Asset</th><th>Kind</th><th>When</th><th>What happened</th><th>Status</th></tr></thead>
