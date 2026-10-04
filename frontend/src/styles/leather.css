@@ -1,0 +1,193 @@
+/* Final surface layer: matte black leather with brass hardware, liquid glass floating above it.
+   Loaded last; it overrides the flat tokens in app.css and the first glass pass in glass.css. */
+:root {
+  --bg: #101114; --panel: #17181c; --raised: #1f2126; --line: #26282e; --line2: #393c44;
+  --tx: #efeadf; --tx2: #b9bcc3; --tx3: #8d919b;
+  --brass: #c2a25a; --brass-hi: #e6cd8e; --brass-lo: #8c7239; --brass-bg: rgba(194, 162, 90, 0.12);
+  --stitch: rgba(194, 162, 90, 0.3);
+  --glass-tint: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.04) 42%, rgba(255, 255, 255, 0.08)), rgba(14, 15, 18, 0.46);
+  --glass-edge: rgba(255, 255, 255, 0.22);
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.42), inset 0 -1px 0 rgba(255, 255, 255, 0.08), inset 0 0 24px rgba(255, 255, 255, 0.05);
+  --glass-drop: 0 22px 44px -20px rgba(0, 0, 0, 0.85), 0 3px 8px rgba(0, 0, 0, 0.35);
+  --glass-sheen: rgba(255, 255, 255, 0.22);
+  --pad-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055), inset 0 -1px 0 rgba(0, 0, 0, 0.55), 0 14px 26px -16px rgba(0, 0, 0, 0.8);
+  /* pebbled leather: fine pores over slow wrinkles, lit from the upper left */
+  --leather: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='a' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='3' seed='11' stitchTiles='stitch' result='p'/%3E%3CfeTurbulence type='turbulence' baseFrequency='.05' numOctaves='2' seed='4' stitchTiles='stitch' result='w'/%3E%3CfeComposite in='p' in2='w' operator='arithmetic' k1='0' k2='.86' k3='.16' k4='0' result='m'/%3E%3CfeDiffuseLighting in='m' lighting-color='%23fff' surfaceScale='1.25' diffuseConstant='1.05' result='l'%3E%3CfeDistantLight azimuth='225' elevation='58'/%3E%3C/feDiffuseLighting%3E%3CfeComponentTransfer in='l'%3E%3CfeFuncR type='linear' slope='.8' intercept='-.19'/%3E%3CfeFuncG type='linear' slope='.8' intercept='-.19'/%3E%3CfeFuncB type='linear' slope='.8' intercept='-.19'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='420' height='420' filter='url(%23a)'/%3E%3C/svg%3E");
+}
+:root[data-theme="light"] {
+  --bg: #cfc4b2; --panel: #dcd2c2; --raised: #e8dfd1; --line: #bdb19d; --line2: #a39681;
+  --tx: #1d1a15; --tx2: #4a443a; --tx3: #776f62;
+  --brass: #7a5d1c; --brass-hi: #a8873a; --brass-lo: #5b4412; --brass-bg: rgba(122, 93, 28, 0.13);
+  --stitch: rgba(60, 45, 20, 0.36);
+  --glass-tint: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.3) 42%, rgba(255, 255, 255, 0.42)), rgba(232, 223, 209, 0.35);
+  --glass-edge: rgba(255, 255, 255, 0.75);
+  --glass-rim: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 20px rgba(255, 255, 255, 0.25);
+  --glass-drop: 0 20px 40px -20px rgba(50, 35, 10, 0.55), 0 2px 6px rgba(50, 35, 10, 0.18);
+  --glass-sheen: rgba(255, 255, 255, 0.6);
+  --pad-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -1px 0 rgba(60, 45, 20, 0.25), 0 14px 26px -16px rgba(50, 35, 10, 0.5);
+}
+
+/* ---------- leather: the page, the sidebar, every panel ---------- */
+body { background-color: var(--bg); background-image: var(--leather), radial-gradient(900px 620px at 82% -8%, rgba(194, 162, 90, 0.08), transparent 62%), radial-gradient(760px 600px at 8% 108%, rgba(95, 143, 182, 0.06), transparent 60%); background-blend-mode: soft-light, normal, normal; background-attachment: fixed; }
+.grain { opacity: 0.03; }
+.side { background-color: #0d0e10; background-image: var(--leather); background-blend-mode: soft-light; border-right: 0; box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.7), 14px 0 30px -22px rgba(0, 0, 0, 0.9); position: relative; z-index: 950; }
+:root[data-theme="light"] .side { background-color: #bfb39f; }
+.panel, .districts, .sitrep, .ticker, .arch-box, .note { background-color: var(--panel); background-image: var(--leather); background-blend-mode: soft-light; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 14px; box-shadow: var(--pad-shadow); }
+:root[data-theme="light"] :is(.panel, .districts, .sitrep, .ticker, .arch-box) { border-color: rgba(60, 45, 20, 0.28); }
+.panel { position: relative; }
+.panel > header { border-bottom: 0; padding: 16px 18px 4px; }
+.panel > header h2 { font: 500 17px/1.2 var(--serif); }
+.panel > .body { padding: 12px 18px 18px; }
+.panel > .body.flush { padding: 4px 5px 7px; }
+.panel > .body.flush .rows > *, .panel > .body.flush th, .panel > .body.flush td { padding-left: 13px; padding-right: 13px; }
+.rows > *, td, th { border-bottom-color: rgba(127, 127, 127, 0.13); }
+.rows > button:hover, tr.click:hover { background: rgba(255, 255, 255, 0.045); border-radius: 8px; }
+.note { border-left: 2px solid var(--brass); border-radius: 10px; }
+.page-head h1, .hero h1 { text-shadow: 0 1px 0 rgba(255, 255, 255, 0.07), 0 -1px 1px rgba(0, 0, 0, 0.7); }
+.brand b { font: 400 14px/1 var(--serif); letter-spacing: 0.34em; text-transform: uppercase; }
+.brand small { letter-spacing: 0.02em; }
+.boot b { font: 400 17px var(--serif); letter-spacing: 0.42em; text-transform: uppercase; margin-top: 6px; padding-left: 0.42em; }
+.hero h1 { font-weight: 300; letter-spacing: -0.012em; }
+
+/* ---------- brass hardware ---------- */
+.btn.primary { background: var(--brass); border: 1px solid rgba(0, 0, 0, 0.35); color: #1a1509; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 6px 14px -8px rgba(0, 0, 0, 0.8); border-radius: 10px; padding: 7px 15px; }
+.switch { width: 38px; height: 22px; border-radius: 11px; background: rgba(0, 0, 0, 0.4); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07); }
+.switch::after { top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 8px; background: linear-gradient(180deg, #f4f4f2, #b9bcc2); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6); transition: transform 0.42s var(--spring), width 0.18s; }
+.switch:active::after { width: 22px; }
+.switch.on { background: linear-gradient(180deg, var(--brass-lo), var(--brass)); }
+.switch.on::after { transform: translateX(16px); background: linear-gradient(180deg, #fff, #dcd7ca); }
+.switch.on:active::after { transform: translateX(10px); }
+.tag { border-radius: 6px; padding: 1px 7px; background: rgba(0, 0, 0, 0.22); }
+.sev { border-radius: 6px; background: rgba(0, 0, 0, 0.22); }
+
+/* ---------- liquid glass: everything that floats ---------- */
+:root:not([data-glass="off"]) :is(.top, .layers, .drawer, .toast, .menu, .palette, .phone, .caption, .sheet, .map-foot, .reach-legend, .kpi, .map-top .seg, .map-tools .icon-btn) {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: blur(22px) saturate(180%) brightness(1.12);
+  backdrop-filter: blur(22px) saturate(180%) brightness(1.12);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-rim), var(--glass-drop);
+}
+:root[data-glass="liquid"] :is(.top, .layers, .drawer, .palette, .phone, .caption, .sheet, .menu, .kpi) {
+  backdrop-filter: url(#nx-refract) blur(18px) saturate(190%) brightness(1.14);
+}
+:root[data-glass="off"] :is(.top, .kpi) { background-color: var(--panel); background-image: var(--leather); background-blend-mode: soft-light; }
+.top { top: 12px; left: 16px; right: 16px; border-radius: 20px; padding: 9px 12px 9px 16px; }
+.page { padding-top: 96px; }
+.layers, .palette, .sheet, .caption, .menu { border-radius: 18px; }
+.drawer { top: 12px; right: 12px; bottom: 12px; border-radius: 24px; overflow: hidden; }
+.toast { border-radius: 14px; border-left: 1px solid var(--glass-edge); padding: 11px 18px; }
+.phone { border-radius: 38px; padding: 22px 18px 24px; }
+.map-tools .icon-btn, .map-top .seg { border-radius: 12px; }
+.kpi::after { display: none; }
+.kpi { border-radius: 20px; padding: 18px 20px; overflow: hidden; }
+.kpi .num { font-size: 34px; }
+.scrim { background: rgba(5, 6, 8, 0.38); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.overlay { background: rgba(5, 6, 8, 0.36); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+/* a band of light that drifts across each pane: the "liquid" */
+:root:not([data-glass="off"]) :is(.top, .kpi, .phone, .palette, .caption)::after {
+  content: ""; display: block; position: absolute; inset: 0; border: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(112deg, transparent 32%, rgba(255, 255, 255, 0.11) 46%, rgba(255, 255, 255, 0.02) 54%, transparent 66%);
+  background-size: 260% 100%; animation: liquid 9s ease-in-out infinite;
+}
+.kpi:nth-child(2)::after { animation-delay: -2s; } .kpi:nth-child(3)::after { animation-delay: -4s; } .kpi:nth-child(4)::after { animation-delay: -6s; } .kpi:nth-child(5)::after { animation-delay: -7.5s; }
+@keyframes liquid { 0%, 100% { background-position: 120% 0; } 50% { background-position: -20% 0; } }
+.kpi, .phone, .caption { position: relative; }
+:root:not([data-glass="off"]) .kpi::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(260px circle at var(--mx, 50%) var(--my, -60px), var(--glass-sheen), transparent 62%); opacity: var(--hl, 0); transition: opacity 0.3s; }
+.panel.kpi:hover { transform: translateY(-3px) scale(1.012); }
+
+/* glass pills: secondary buttons, icon buttons, fields in the top bar */
+.btn:not(.primary), .icon-btn, .find, .replaybar, .net, .role > button, .rail-btn:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.035));
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 4px 10px -6px rgba(0, 0, 0, 0.7);
+  border-radius: 10px;
+}
+:root[data-theme="light"] :is(.btn:not(.primary), .icon-btn, .find, .replaybar, .net, .role > button) { background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.35)); border-color: rgba(255, 255, 255, 0.8); box-shadow: inset 0 1px 0 #fff, 0 4px 10px -6px rgba(50, 35, 10, 0.5); }
+.btn:not(.primary):hover, .icon-btn:hover { background: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.06)); border-color: rgba(255, 255, 255, 0.24); }
+.net.down { border-color: var(--crit); }
+.input, .field select, .field input, .field textarea { background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.45); }
+:root[data-theme="light"] :is(.input, .field select, .field input, .field textarea) { background: rgba(255, 255, 255, 0.45); border-color: rgba(60, 45, 20, 0.2); box-shadow: inset 0 2px 4px rgba(60, 45, 20, 0.18); }
+
+/* ---------- sliding glass thumbs: the selection flows instead of jumping ---------- */
+.seg { position: relative; border-radius: 12px; padding: 3px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.5); }
+:root[data-theme="light"] .seg { background: rgba(60, 45, 20, 0.12); border-color: rgba(60, 45, 20, 0.15); box-shadow: inset 0 2px 5px rgba(60, 45, 20, 0.2); }
+.seg button { position: relative; z-index: 1; border-radius: 9px; padding: 5px 12px; }
+.seg button.on { background: none; box-shadow: none; color: var(--tx); }
+.thumb { position: absolute; z-index: 0; left: 0; top: 0; pointer-events: none; border-radius: 9px; opacity: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08)); border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 5px 12px -5px rgba(0, 0, 0, 0.8);
+  transition: transform 0.5s var(--spring), width 0.5s var(--spring), height 0.5s var(--spring), opacity 0.2s; }
+.thumb.ready { opacity: 1; }
+:root[data-theme="light"] .thumb { background: linear-gradient(180deg, #fff, rgba(255, 255, 255, 0.7)); border-color: #fff; box-shadow: 0 5px 12px -5px rgba(50, 35, 10, 0.6); }
+.nav { position: relative; }
+.nav button { position: relative; z-index: 1; border-radius: 11px; padding: 8px 11px; }
+.nav button.on { background: none; box-shadow: none; color: var(--tx); }
+.nav button:hover { background: rgba(255, 255, 255, 0.05); }
+.nav .thumb { border-radius: 11px; }
+.nav .thumb::before { content: ""; position: absolute; left: -1px; top: 22%; bottom: 22%; width: 3px; border-radius: 2px; background: linear-gradient(var(--brass-hi), var(--brass-lo)); }
+.nav hr { border-top: 1px solid rgba(127, 127, 127, 0.14); margin: 10px 12px; }
+.districts { padding: 4px; gap: 2px; border-radius: 16px; }
+.districts button { border-right: 0; border-radius: 12px; padding: 8px 15px; }
+.districts button.on { background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07)); border: 1px solid rgba(255, 255, 255, 0.24); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 6px 12px -6px rgba(0, 0, 0, 0.8); padding: 7px 14px; }
+
+/* ---------- map set into the leather like an instrument ---------- */
+.mapbox { border-radius: 18px; border: 1px solid rgba(0, 0, 0, 0.7); box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.22), 0 0 0 6px rgba(255, 255, 255, 0.045), 0 18px 34px -18px rgba(0, 0, 0, 0.9); }
+.mapbox::after { content: ""; position: absolute; inset: 0; z-index: 790; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 44px rgba(0, 0, 0, 0.55), inset 0 2px 0 rgba(0, 0, 0, 0.5); }
+.mapbox.full { border-radius: 0; box-shadow: none; }
+.sos-btn { border: 0; outline: 0; background: radial-gradient(circle at 35% 28%, #e08a7c, var(--crit) 46%, #7c2b22); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), inset 0 -8px 16px rgba(0, 0, 0, 0.35), 0 16px 30px -10px rgba(196, 87, 74, 0.55), 0 0 0 7px rgba(255, 255, 255, 0.07); }
+.boot { background-color: var(--bg); background-image: var(--leather); background-blend-mode: soft-light; }
+.caption .bar { bottom: 6px; }
+@media (max-width: 900px) { .top { left: 8px; right: 8px; top: 8px; border-radius: 16px; } .page { padding-top: 84px; } .drawer { top: 6px; right: 6px; bottom: 6px; } }
+@media print { body { background: #fff; } .panel::after { display: none; } }
+
+.top :is(.find, .replaybar, .net, .replaybar .t) { color: var(--tx2); }
+.replaybar select, .role > button { color: var(--tx); }
+.districts button small { color: var(--tx2); opacity: 0.8; }
+
+/* ---------- 3D map (MapLibre) ---------- */
+.mapbox .gl { position: absolute; inset: 0; }
+.mapbox .maplibregl-canvas { outline: none; }
+.maplibregl-marker { cursor: pointer; }
+.mk { display: grid; place-items: center; }
+.mk-ph i { width: 15px; height: 15px; border-radius: 50%; background: var(--panel); border: 1.5px solid var(--tx); position: relative; }
+.mk-ph i::before { content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 1.5px; margin-top: -0.75px; background: var(--tx); }
+.mk-end i { width: 24px; height: 24px; border-radius: 50%; background: var(--brass); color: #1a1509; display: grid; place-items: center; font: 600 12px var(--sans); font-style: normal; box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35), 0 6px 12px rgba(0, 0, 0, 0.6); }
+.mk-end.b i { background: var(--tx); }
+.mk-go i { width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px var(--brass), 0 0 14px 4px rgba(194, 162, 90, 0.55); }
+.mk-x.user i { border-radius: 50%; box-shadow: 0 0 0 3px rgba(196, 87, 74, 0.3); }
+.mk-label i { font: 500 12px var(--sans); font-style: normal; white-space: nowrap; background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 2px 8px; transform: translate(34px, -14px); }
+.measuring .maplibregl-canvas { cursor: crosshair; }
+.map-foot { max-width: calc(100% - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; left: 12px; bottom: 10px; position: absolute; z-index: 5; border-radius: 9px; padding: 3px 10px; font-size: 11px; color: var(--tx2); }
+.map-top, .map-tools, .layers, .reach-legend { z-index: 6; }
+.map-tools, .layers { top: 62px; }
+.steps { display: grid; }
+.steps > div { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid rgba(127, 127, 127, 0.13); }
+.steps > div.cut .grow { color: var(--crit); } .steps > div.slow .grow { color: var(--slide); }
+.steps .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn.on { color: var(--brass); border-color: var(--brass); }
+.page { scroll-padding-top: 100px; scroll-padding-bottom: 40px; }
+
+/* ---------- flood control, race ---------- */
+.floodbar { position: absolute; z-index: 6; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 8px; padding: 5px 12px 5px 6px; border-radius: 12px; font-size: 12px; color: var(--tx2); background: var(--glass-tint); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); border: 1px solid var(--glass-edge); box-shadow: var(--glass-rim), var(--glass-drop); }
+:root[data-glass="off"] .floodbar { background: var(--panel); }
+.floodbar button { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; color: var(--tx); }
+.floodbar button:hover { background: rgba(255, 255, 255, 0.1); }
+.floodbar svg { width: 14px; height: 14px; color: var(--flood); }
+.floodbar button svg { color: inherit; }
+.floodbar input { width: 110px; accent-color: var(--flood); }
+.floodbar span { min-width: 64px; }
+.map-foot { max-width: calc(100% - 300px); }
+.mk-race i { width: 26px; height: 26px; border-radius: 50%; background: var(--brass); color: #1a1509; display: grid; place-items: center; font: 600 12px var(--sans); font-style: normal; box-shadow: 0 0 0 3px rgba(194, 162, 90, 0.35), 0 8px 16px rgba(0, 0, 0, 0.7); }
+.mk-race.base i { background: #d9dbe0; box-shadow: 0 0 0 3px rgba(217, 219, 224, 0.3), 0 8px 16px rgba(0, 0, 0, 0.7); }
+.race { display: grid; gap: 14px; }
+.lane { display: grid; grid-template-columns: 96px 1fr 92px; gap: 12px; align-items: center; }
+.lane .track { height: 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.35); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6); overflow: hidden; }
+.lane .track i { display: block; height: 100%; border-radius: 4px; background: var(--brass); }
+.lane.base .track i { background: var(--tx2); }
+.lane .clock { font: 400 20px var(--serif); text-align: right; }
+.lane small { grid-column: 2 / -1; color: var(--tx3); margin-top: -8px; }
+.verdict { font: 400 19px/1.35 var(--serif); }
+@media (max-width: 900px) { .floodbar input { width: 70px; } .map-foot { display: none; } }
+.icon-btn.lang { font: 500 12.5px var(--sans); width: auto; min-width: 32px; padding: 0 8px; }
+@media (max-width: 520px) { .icon-btn.lang { display: none; } }

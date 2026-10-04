@@ -1,0 +1,19 @@
+node_modules
+dist
+*.local
+.env
+.next
+.DS_Store
+*.log
+
+# generated seed output
+tools/seed/out/
+# go
+*.test
+bin/
+# python
+__pycache__/
+.venv/
+# playwright
+test-results/
+playwright-report/
