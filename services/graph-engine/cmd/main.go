@@ -47,7 +47,6 @@ func main() {
 		cat[id] = domain.ClosureAt{Kind: c.Kind, At: [2]float64{c.At[0], c.At[1]}}
 	}
 	nodes := map[string]domain.NodePos{}
-	names := map[int]string{}
 	for id, n := range nodesRaw {
 		var lat, lng float64
 		var name string
@@ -61,7 +60,6 @@ func main() {
 	// Road network: real OpenStreetMap roads when public/roads.json exists (same order the frontend uses), else the schematic.
 	net := loadNet(app, config.String("ROADS_FILE", "../../frontend/public/roads.json"), cat, nodesRaw, edgesRaw, speed, wind)
 	app.Log.Info("road network ready", "source", net.Source, "nodes", len(net.Lat), "edges", len(net.Edges))
-	_ = names
 
 	start := scenarios["s260720"]
 	state := domain.NewRoadState(start.Closures)

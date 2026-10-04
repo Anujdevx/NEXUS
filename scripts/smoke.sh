@@ -64,5 +64,24 @@ if [ "$E2E" = 1 ]; then
   echo "$inc" | grep -q "\"$sid\"" && echo "$inc" | grep -q '"Unit assigned"' && ok=1 || ok=0; check "incident $sid is Unit assigned" "$ok"
 fi
 
+if [ "$E2E" = 1 ]; then
+  c_info "end to end: writes (reset at the end)"
+  jh=(-H "Authorization: Bearer $CT" -H 'Content-Type: application/json')
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/roads/closures/c_nkc/toggle" "${jh[@]}")" = 200 ] && ok=1 || ok=0; check "traffic: toggle a closure" "$ok"
+  curl -s -o /dev/null -X POST "$B/api/v1/roads/closures/c_nkc/toggle" "${jh[@]}"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/roads/breaks" "${jh[@]}" -d '{"lat":30.35,"lng":78.05,"reason":"smoke"}')" = 201 ] && ok=1 || ok=0; check "traffic: report a break" "$ok"
+  sleep 1
+  curl -s "$B/api/v1/graph/state" -H "Authorization: Bearer $CT" | grep -q '"lat":30.35' && ok=1 || ok=0; check "graph-engine saw the break on the bus" "$ok"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/alerts" "${jh[@]}" -d '{"area":"Smoke test","severity":"Moderate"}')" = 201 ] && ok=1 || ok=0; check "notification: issue a CAP alert" "$ok"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/environment/flood-stage" "${jh[@]}" -d '{"stage":30}')" = 200 ] && ok=1 || ok=0; check "environment: set the flood stage" "$ok"
+  printf '\211PNG\r\n\032\n' >"${TMPDIR:-/tmp}/nexus-smoke.png"
+  m="$(curl -s -X POST "$B/api/v1/media" -H "Authorization: Bearer $CZ" -F "file=@${TMPDIR:-/tmp}/nexus-smoke.png;type=image/png")"
+  echo "$m" | grep -q '"id"' && ok=1 || ok=0; check "media: upload an attachment to MinIO" "$ok"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/topology/assets/sub-02/fail" "${jh[@]}")" = 200 ] && ok=1 || ok=0; check "graph-engine: cascade from sub-02" "$ok"
+  "$ROOT/scripts/seed.sh" --reset >/dev/null 2>&1 && ok=1 || ok=0; check "reset to the opening scenario (scenario.loaded)" "$ok"
+  sleep 2
+  curl -s "$B/api/v1/topology/assets" -H "Authorization: Bearer $CT" | python3 -c "import sys,json; sys.exit(0 if all(a['status']=='ACTIVE' for a in json.load(sys.stdin)['items']) else 1)" && ok=1 || ok=0; check "every utility is ACTIVE after the reset" "$ok"
+fi
+
 echo
 if [ "$FAIL" = 0 ]; then c_ok "smoke test green"; else c_fail "$FAIL check(s) failed"; exit 1; fi

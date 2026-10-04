@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/nexus/citizen-reporting/internal/domain"
@@ -114,6 +113,7 @@ type Report struct {
 	Lat         float64 `json:"lat"`
 	Lng         float64 `json:"lng"`
 	Description string  `json:"description"`
+	Desc        string  `json:"desc,omitempty"` // accepted as an alias for description on input
 	MediaID     string  `json:"media_id"`
 	UserID      string  `json:"user_id"`
 	Status      string  `json:"status"`
@@ -121,6 +121,10 @@ type Report struct {
 
 func (s *Store) SaveReport(ctx context.Context, r Report) (Report, error) {
 	r.ID, r.Status = uuid.NewString(), "new"
+	if r.Description == "" {
+		r.Description = r.Desc
+	}
+	r.Desc = ""
 	_, err := s.DB.Exec(ctx, `INSERT INTO reports (id,user_id,type,lat,lng,description,media_id) VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,''))`, r.ID, r.UserID, r.Type, r.Lat, r.Lng, r.Description, r.MediaID)
 	return r, err
 }
@@ -141,5 +145,3 @@ func (s *Store) Reports(ctx context.Context, limit int) ([]Report, error) {
 	}
 	return out, rows.Err()
 }
-
-var _ = pgx.ErrNoRows

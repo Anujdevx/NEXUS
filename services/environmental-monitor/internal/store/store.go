@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -147,5 +146,3 @@ func (s *Store) AddRiver(ctx context.Context, gauge string, level, danger float6
 		gauge, level, danger, status, map[string]string{"below": "ok", "warning": "warn", "danger": "bad"}[status], source)
 	return err
 }
-
-var _ = json.Marshal

@@ -4,7 +4,6 @@ package bus
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 
 	"nexus/shared/envelope"
@@ -92,5 +91,3 @@ func (c *Consumer) Handle(ctx context.Context, env envelope.Envelope) error {
 	}
 	return nil
 }
-
-var _ = json.Marshal

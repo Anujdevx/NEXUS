@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"time"
 
@@ -68,7 +67,6 @@ func main() {
 	app.Ready("postgres", func(c context.Context) error { return pool.Ping(c) })
 	app.Ready("rabbitmq", b.Check)
 	(&api.API{D: d, Secret: config.JWTSecret(), Key: config.ServiceKey(), Stubs: stubs}).Register(app)
-	_ = json.Marshal
 
 	if err := app.Run(ctx); err != nil {
 		app.Log.Error("server", "err", err)

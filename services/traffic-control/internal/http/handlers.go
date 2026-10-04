@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"nexus/shared/auth"
 	"nexus/shared/envelope"
@@ -144,6 +145,7 @@ func (a *API) addBreak(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.PublishBreak(r.Context(), "add", b)
+	b.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	httpx.JSON(w, http.StatusCreated, b)
 }
 
