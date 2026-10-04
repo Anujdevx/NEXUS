@@ -24,6 +24,10 @@ CT="$(tok Controller)"; CZ="$(tok Citizen)"
 [ -n "$CT" ] && ok=1 || ok=0; check "identity: demo token (Controller)" "$ok"
 [ "$(code -H "Authorization: Bearer $CT" "$B/api/v1/auth/me")" = 200 ] && ok=1 || ok=0; check "identity: /auth/me" "$ok"
 [ "$(code "$B/api/v1/hospitals")" = 401 ] && ok=1 || ok=0; check "auth: no token is refused (401)" "$ok"
+for p in /hospitals /units /graph/state /topology/assets /hazard/state /roads/state; do
+  [ "$(code -H "Authorization: Bearer $CZ" "$B/api/v1$p")" = 403 ] && ok=1 || ok=0; check "citizen is refused GET $p (403)" "$ok"
+done
+[ "$(code "$B/api/v1/auth/config")" = 200 ] && ok=1 || ok=0; check "identity: GET /auth/config" "$ok"
 get() { [ "$(code -H "Authorization: Bearer $CT" "$B$1")" = 200 ] && ok=1 || ok=0; check "GET $1" "$ok"; }
 get /api/v1/graph/network
 get /api/v1/graph/state

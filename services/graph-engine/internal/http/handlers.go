@@ -37,7 +37,7 @@ type Service struct {
 }
 
 func (s *Service) Register(app *httpx.App) {
-	any := auth.RequireOrKey(s.Secret, s.Key)
+	any := auth.RequireOrKey(s.Secret, s.Key, auth.Controller, auth.Responder) // operational data: not for citizens
 	ctl := auth.Require(s.Secret, auth.Controller)
 	app.Handle("GET /api/v1/graph/network", any(s.network))
 	app.Handle("GET /api/v1/graph/state", any(s.state))

@@ -30,7 +30,7 @@ type API struct {
 }
 
 func (a *API) Register(app *httpx.App) {
-	anyRole := auth.RequireOrKey(a.Secret, a.Key)
+	anyRole := auth.RequireOrKey(a.Secret, a.Key, auth.Controller, auth.Responder) // operational data: not for citizens
 	field := auth.Require(a.Secret, auth.Controller, auth.Responder)
 	ctl := auth.Require(a.Secret, auth.Controller)
 	app.Handle("GET /api/v1/roads/closures", anyRole(a.closures))

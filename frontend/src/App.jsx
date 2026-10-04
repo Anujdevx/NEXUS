@@ -4,8 +4,9 @@ import Topbar from "./components/Topbar.jsx";
 import Drawer from "./components/Drawer.jsx";
 import CommandPalette, { Shortcuts } from "./components/CommandPalette.jsx";
 import Demo from "./components/Demo.jsx";
+import Login from "./components/Login.jsx";
 import { Grain, RefractDefs, Boot, useSheen } from "./components/Fx.jsx";
-import { useStore, actions, getState } from "./state/store.js";
+import { useStore, actions, getState, canSee } from "./state/store.js";
 import Overview from "./views/Overview.jsx";
 import Incidents from "./views/Incidents.jsx";
 import MapPage from "./views/MapPage.jsx";
@@ -71,7 +72,10 @@ export default function App() {
   }, [theme, glass, settings.motion, settings.density]);
   useSheen();
   useShortcuts();
-  const View = VIEWS[view] || Overview;
+  const role = useStore((s) => s.role);
+  /* a role may only open its own screens, even by typing the address */
+  useEffect(() => { if (!canSee(role, view)) actions.go(role === "Citizen" ? "sos" : "assignment"); }, [role, view]);
+  const View = canSee(role, view) ? VIEWS[view] || Overview : role === "Citizen" ? Sos : Assignment;
   return (
     <div className={"app" + (rail ? " rail" : "")}>
       <Sidebar />
@@ -84,6 +88,7 @@ export default function App() {
       <CommandPalette />
       <Shortcuts />
       <Demo />
+      <Login />
       {toast && !demo && <div className="toast" role="status">{toast}</div>}
       <RefractDefs animate={settings.motion === "full"} />
       <Grain />

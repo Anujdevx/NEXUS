@@ -20,7 +20,8 @@ async function connect() {
   if (stopped || !LIVE_ENABLED) return;
   clearTimeout(timer);
   let token;
-  try { token = await api.ensureToken(ctx.getRole()); } catch { return retry(); }
+  try { token = await api.ensureToken(ctx.getRole()); ctx.onLogin && ctx.onLogin(false); }
+  catch (e) { if (e.login) { ctx.onLogin && ctx.onLogin(true); return; } return retry(); } // login required: wait for the person to sign in
   try { ws = new WebSocket(wsUrl(token)); } catch { return retry(); }
   const mine = ws;
   mine.onopen = () => { attempt = 0; ctx.onStatus(true); ctx.onConnected(); };

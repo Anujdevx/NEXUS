@@ -7,6 +7,18 @@ let tokenRole = null;
 let live = false;
 const listeners = new Set();
 
+/* A real login (when the backend has demo tokens off). The session lives in this tab only: sessionStorage. */
+const SESSION_KEY = "nexus.session";
+let session = null;
+try { session = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); } catch { /* no storage */ }
+if (session) { token = session.token; tokenRole = session.role; } // a reload keeps the sign-in
+let authCfg = null;
+const authLost = new Set();
+export const getSession = () => session;
+export const onAuthLost = (f) => { authLost.add(f); return () => authLost.delete(f); };
+function setSession(s) { session = s; token = s ? s.token : null; tokenRole = s ? s.role : null; try { if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); else sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ } }
+export function logout() { setSession(null); }
+
 export const isLive = () => live;
 export const onLiveChange = (f) => { listeners.add(f); return () => listeners.delete(f); };
 function setLive(v) { if (v !== live) { live = v; listeners.forEach((f) => f(v)); } }
@@ -37,7 +49,7 @@ async function call(method, path, body, opt = {}) {
     return r;
   } catch (e) {
     if (e.status === undefined || e.status >= 502 || e.proxy) setLive(false);
-    if (e.status === 401 && token) { token = null; tokenRole = null; } // expired: next call refreshes it
+    if (e.status === 401 && token) { if (session) { setSession(null); authLost.forEach((f) => f()); } else { token = null; tokenRole = null; } } // expired: a demo token is refreshed, a login is asked for again
     throw e;
   }
 }
@@ -49,19 +61,31 @@ export const patch = (p, b, o) => call("PATCH", p, b ?? {}, o);
 /* A bearer token for the console's current role. */
 export async function ensureToken(role) {
   if (!LIVE_ENABLED) throw new Error("live mode is off");
+  if (session) return session.token; // a logged-in session is fixed to its own role
   if (token && tokenRole === role) return token;
   try {
+    if (!authCfg) authCfg = await raw("GET", "/auth/config", undefined, TIMEOUT_MS, false).catch((e) => (e.status === 404 ? { demo: true } : Promise.reject(e)));
+    if (authCfg.demo === false) { const e = new Error("login required"); e.login = true; throw e; }
     const r = await raw("POST", "/auth/demo-token", { role }, TIMEOUT_MS, false);
     token = r.token; tokenRole = role;
     setLive(true);
     return token;
   } catch (e) {
     token = null; tokenRole = null;
+    if (e.login) throw e; // the backend is there; it wants a login
     if (e.status === undefined || e.status >= 500 || e.proxy) setLive(false);
     throw e;
   }
 }
-export const dropToken = () => { token = null; tokenRole = null; };
+
+/* Sign in with email and password. Resolves {role, email}. */
+export async function login(email, password) {
+  const r = await raw("POST", "/auth/login", { email, password }, TIMEOUT_MS, false);
+  setSession({ token: r.token, role: r.role, email });
+  setLive(true);
+  return { role: r.role, email };
+}
+export const dropToken = () => { if (!session) { token = null; tokenRole = null; } }; // a sign-in is kept; only a demo token is re-minted per role
 
 /* Does the backend answer? True after the token call or GET /auth/me succeeds. */
 export async function probe(role) {

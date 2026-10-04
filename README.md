@@ -34,6 +34,11 @@ The first run builds ten Go images (a few minutes). It prints the console URL (h
 ./scripts/start-all.sh --build  # rebuild the images; --clean starts from empty databases; --no-frontend skips the console
 ```
 
+**Separate Citizen and City-admin access.** `./scripts/start-all.sh --secure` turns demo tokens off: the console asks for a sign-in, and the script
+prints the three accounts (`controller@`, `responder@`, `citizen@nexus.local`) and the console's address on your Wi-Fi. Open that address on a phone
+and sign in as the citizen: it sees only the SOS screen, and its token is refused by every operational endpoint. Sign in as the controller on the
+laptop to watch the SOS arrive. `--demo` (the default) brings back the instant role switch for rehearsals.
+
 Without Docker, the console alone still works: `cd frontend && npm install && npm run dev` (the chip reads **Local**).
 
 Passwords and secrets are generated into `.env` (gitignored) on first start. Each service has a `.env.example`.

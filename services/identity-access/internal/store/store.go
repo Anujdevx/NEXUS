@@ -28,9 +28,9 @@ func (s *Store) ByEmail(ctx context.Context, email string) (*Row, error) {
 	return &r, err
 }
 
-// Ensure inserts the user if absent (demo seeding from env).
+// Ensure creates the demo user, or resets its password and role to what the environment says (so editing .env takes effect on restart).
 func (s *Store) Ensure(ctx context.Context, email, hash, role string) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO users(id,email,password_hash,role) VALUES($1,$2,$3,$4) ON CONFLICT (email) DO NOTHING`, uuid.NewString(), email, hash, role)
+	_, err := s.DB.Exec(ctx, `INSERT INTO users(id,email,password_hash,role) VALUES($1,$2,$3,$4) ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, role=EXCLUDED.role`, uuid.NewString(), email, hash, role)
 	return err
 }
 

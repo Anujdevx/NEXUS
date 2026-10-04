@@ -23,7 +23,7 @@ type API struct {
 }
 
 func (a *API) Register(app *httpx.App) {
-	anyRole := auth.RequireOrKey(a.Secret, a.Key)
+	anyRole := auth.RequireOrKey(a.Secret, a.Key, auth.Controller, auth.Responder) // operational data: not for citizens
 	ctl := auth.Require(a.Secret, auth.Controller)
 	field := auth.Require(a.Secret, auth.Controller, auth.Responder)
 	app.Handle("GET /api/v1/hospitals", anyRole(a.hospitals))
@@ -249,7 +249,7 @@ func (a *API) assignments(w http.ResponseWriter, r *http.Request) {
 
 // stub serves a tier-3 module's stub envelope (Abhayasūchī, Sambharaṇa), labelled as a stub.
 func (a *API) stub(key string) http.HandlerFunc {
-	return auth.RequireOrKey(a.Secret, a.Key)(func(w http.ResponseWriter, _ *http.Request) {
+	return auth.RequireOrKey(a.Secret, a.Key, auth.Controller, auth.Responder)(func(w http.ResponseWriter, _ *http.Request) {
 		s, ok := a.Stubs[key]
 		if !ok {
 			httpx.Error(w, http.StatusNotFound, "not_found", "no stub for this module")

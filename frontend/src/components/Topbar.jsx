@@ -31,6 +31,7 @@ export default function Topbar() {
   const online = useStore((s) => s.online);
   const lang = useStore((s) => s.lang);
   const live = useStore((s) => s.live);
+  const session = useStore((s) => s.session);
   const t = useT();
   const waiting = useStore((s) => s.incidents).filter((i) => i.status === "Open");
   const [menu, setMenu] = useState(null);
@@ -66,7 +67,9 @@ export default function Topbar() {
           <button onClick={() => setMenu(menu === "role" ? null : "role")} aria-haspopup="menu" aria-expanded={menu === "role"}>{role}<ChevronDown size={14} /></button>
           {menu === "role" && (
             <div className="menu" role="menu">
-              {ROLES.map(([r, d]) => <button key={r} role="menuitem" onClick={() => { setMenu(null); actions.setRole(r); }}>{r}<small>{d}</small></button>)}
+              {session
+                ? <button role="menuitem" onClick={() => { setMenu(null); actions.logout(); }}>Sign out<small>{session.email}</small></button>
+                : ROLES.map(([r, d]) => <button key={r} role="menuitem" onClick={() => { setMenu(null); actions.setRole(r); }}>{r}<small>{d}</small></button>)}
             </div>
           )}
         </div>

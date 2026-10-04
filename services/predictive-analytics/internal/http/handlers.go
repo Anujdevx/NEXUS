@@ -43,7 +43,7 @@ func New(segs []domain.Seg, pub Publisher, secret, key, graphURL, trafficURL str
 }
 
 func (a *API) Register(app *httpx.App) {
-	anyRole := auth.RequireOrKey(a.Secret, a.Key)
+	anyRole := auth.RequireOrKey(a.Secret, a.Key, auth.Controller, auth.Responder) // operational data: not for citizens
 	ctl := auth.Require(a.Secret, auth.Controller)
 	app.Handle("POST /api/v1/hazard/rain-whatif", anyRole(a.whatIf))
 	app.Handle("GET /api/v1/hazard/state", anyRole(a.state))

@@ -64,3 +64,8 @@ Where the spec was ambiguous or reality differed, this is what was chosen and wh
     development defaults for secrets, which will not match the running stack. Use the scripts.
 23. **The production service worker no longer caches `/api`, `/svc` or `/ws`.** It cached every same-origin GET, which would have served stale
     shared state to the live console (cache name bumped to v2 so old shells are dropped).
+24. **Access control, server side.** Operational reads (hospitals, units, shelters, pharmacies, routes, graph and topology, closures, environment, hazard)
+    now require Controller or Responder; a Citizen token gets 403. Before, any token could read them and only the console hid them.
+25. **Real sign-in is optional.** With `DEMO_MODE=true` (default) nothing changes. With `--secure` the console shows a sign-in screen, keeps the session in
+    `sessionStorage` (this tab only), fixes the role to the account's, and replaces the role menu with Sign out. Offline, or against a backend in demo
+    mode, the screen never appears. Demo passwords are short (`abcd-1234`) so they can be typed on a phone, and editing them in `.env` takes effect on restart.

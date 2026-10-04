@@ -28,6 +28,7 @@ type API struct {
 func (a *API) Register(app *httpx.App) {
 	app.Handle("POST /api/v1/auth/login", a.login)
 	app.Handle("POST /api/v1/auth/demo-token", a.demoToken)
+	app.Handle("GET /api/v1/auth/config", a.config)
 	app.Handle("GET /api/v1/auth/me", auth.Require(a.Secret)(a.me))
 }
 
@@ -84,4 +85,9 @@ func (a *API) demoToken(w http.ResponseWriter, r *http.Request) {
 func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	c := auth.FromContext(r.Context())
 	httpx.JSON(w, 200, map[string]string{"id": c.Subject, "email": c.Email, "role": c.Role})
+}
+
+// config tells the console whether it may mint demo tokens (no login screen) or must ask for a login.
+func (a *API) config(w http.ResponseWriter, _ *http.Request) {
+	httpx.JSON(w, 200, map[string]any{"demo": a.DemoMode, "roles": []string{auth.Controller, auth.Responder, auth.Citizen}})
 }

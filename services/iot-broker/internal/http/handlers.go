@@ -39,7 +39,7 @@ func (a *API) Register(app *httpx.App) {
 	app.Handle("POST /api/v1/events", anyRole(a.postEvent))
 	app.Handle("GET /api/v1/events", anyRole(a.listEvents))
 	app.Handle("POST /api/v1/telemetry/ingest", auth.ServiceKey(a.Key)(a.ingest))
-	app.Handle("GET /api/v1/telemetry/latest", anyRole(a.latestTelemetry))
+	app.Handle("GET /api/v1/telemetry/latest", auth.Require(a.Secret, auth.Controller, auth.Responder)(a.latestTelemetry))
 	app.Handle("GET /ws/v1/live", a.live)
 }
 

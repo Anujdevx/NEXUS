@@ -26,7 +26,7 @@ type API struct {
 }
 
 func (a *API) Register(app *httpx.App) {
-	anyRole := auth.RequireOrKey(a.Secret, a.Key)
+	anyRole := auth.RequireOrKey(a.Secret, a.Key, auth.Controller, auth.Responder) // operational data: not for citizens
 	ctl := auth.Require(a.Secret, auth.Controller)
 	list := func(f func(context.Context) ([]map[string]any, error), source string) http.HandlerFunc {
 		return anyRole(func(w http.ResponseWriter, r *http.Request) {

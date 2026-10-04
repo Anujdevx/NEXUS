@@ -6,6 +6,18 @@ role claim `Controller | Responder | Citizen`; a Controller can do anything a Re
 simulator use `X-Service-Key`. Every service also serves `GET /healthz` and `GET /readyz`, and reaches them through the
 gateway at `/svc/<service>/healthz` and `/svc/<service>/readyz`.
 
+## Who can do what
+
+| Role | Can |
+|---|---|
+| **Citizen** | `POST /sos`, `POST /reports`, `POST /media`, read public `GET /alerts`, open the WebSocket (own SOS and assignment, public alerts). Everything else is **403**: hospitals, units, shelters, routes, graph state, topology, hazard state, incidents, the audit trail |
+| **Responder** | Everything a Citizen can, plus all operational reads (hospitals, units, shelters, pharmacies, routes, closures, environment, hazard, topology), `GET /incidents`, `PATCH /units/{id}`, `POST /roads/breaks`, and the live stream of road state and their unit's assignment |
+| **Controller** (city administrator) | Everything: writes to hospitals, shelters, closures, alerts, flood stage, approvals, the cascade and reset |
+
+Two sign-in modes. **Demo** (`DEMO_MODE=true`, the default): `POST /auth/demo-token` mints a token for any role, so the console switches
+roles instantly. **Secure** (`scripts/start-all.sh --secure`, `DEMO_MODE=false`): demo tokens are refused, `GET /auth/config` says so, and the
+console shows a sign-in screen; each role signs in with its own account and cannot change role without signing out.
+
 The samples below can be pasted into a shell after:
 
 ```bash

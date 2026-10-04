@@ -46,9 +46,9 @@ let state = {
   planner: { from: null, mode: "hospital", to: null, need: "Trauma", med: "ors" }, closures: closureMap(start), conf: 0.9,
   hosp: seedHosp(), shelters: SHELTERS.map((s) => ({ ...s, open: true })), units: UNITS.map((u) => ({ ...u })),
   audit: load("nexus.audit", []), bus: [], alerts: [], net: true, queue: load("nexus.queue", []), lastSos: null,
-  role: "Controller", theme: load("nexus.theme", "dark"), layers: { ...LENSES.All }, lens: "All", base: "Matte",
+  role: api.getSession()?.role || "Controller", theme: load("nexus.theme", "dark"), layers: { ...LENSES.All }, lens: "All", base: "Matte",
   route: null, selected: null, focus: null, toast: null, district: null, navOpen: false,
-  live: false, cascade: null, assets: {}
+  live: false, cascade: null, assets: {}, authRequired: false, session: api.getSession() ? { email: api.getSession().email, role: api.getSession().role } : null
 };
 
 const subs = new Set();
@@ -65,7 +65,7 @@ let seq = 0;
 const uid = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const envelope = (entity, type, extra = {}) => ({ entity, type, geo: extra.geo ?? null, status: extra.status ?? null, capacity: extra.capacity ?? null, confidence: extra.confidence ?? 1, timestamp: now(), source: extra.source ?? "sutradhara" });
 /* The same envelope to the backend, in the background: never awaited, never blocks the UI. */
-const toBackend = (env, extra) => { if (api.isLive()) api.post("/events", { ...env, id: uid(), origin: CLIENT_ID, payload: extra.payload ?? null }).catch(() => {}); };
+const toBackend = (env, extra) => { if (api.isLive() && (state.role !== "Citizen" || env.entity === "sos" || env.entity === "telecom")) api.post("/events", { ...env, id: uid(), origin: CLIENT_ID, payload: extra.payload ?? null }).catch(() => {}); };
 function publish(entity, type, extra = {}) {
   const env = envelope(entity, type, extra);
   set((s) => ({ bus: [{ ...env, _id: ++seq }, ...s.bus].slice(0, 120) }));
@@ -150,7 +150,7 @@ export const actions = {
   go(view) { if (!canSee(state.role, view)) view = ALLOWED[state.role][0]; location.hash = "#/" + view; set({ view, navOpen: false, palette: false }); },
   toggleNav() { set((s) => ({ navOpen: !s.navOpen })); },
   setTheme(theme) { save("nexus.theme", theme); set({ theme }); },
-  setRole(role) { set({ role }); api.dropToken(); reconnect(); audit("Role changed", role); toast(`Signed in as ${role.toLowerCase()}`); if (role === "Citizen") actions.go("sos"); else if (role === "Responder") actions.go("assignment"); else if (!canSee(role, state.view) || state.view === "assignment") actions.go("overview"); },
+  setRole(role) { const ses = api.getSession(); if (ses && ses.role !== role) { toast(`Signed in as ${ses.email}. Sign out to use another role.`); return; } set({ role }); api.dropToken(); reconnect(); audit("Role changed", role); toast(`Signed in as ${role.toLowerCase()}`); if (role === "Citizen") actions.go("sos"); else if (role === "Responder") actions.go("assignment"); else if (!canSee(role, state.view) || state.view === "assignment") actions.go("overview"); },
   select(kind, id) { set({ selected: { kind, id } }); },
   closeDrawer() { set({ selected: null }); },
   focus(lat, lng, zoom = 14) { if (lat == null) return; set({ focus: { lat, lng, zoom, n: Date.now() } }); },
@@ -421,10 +421,20 @@ export const actions = {
   },
   returnAll() { set((s) => ({ units: s.units.map((u) => ({ ...u, status: "Available", task: "" })) })); publish("unit", "status", { status: "all_available", source: "rakshaka", payload: { all: true } }); audit("All units returned to base", `${state.units.length} units`); toast("All units are available"); },
   unitStep(id, step) { set((s) => ({ units: s.units.map((u) => (u.id === id ? (step === "Free" ? { ...u, status: "Available", task: "", step: null } : { ...u, step }) : u)) })); publish("unit", "progress", { status: step, source: "rakshaka", payload: { id, step } }); audit("Responder update", `${id}: ${step}`); toast(`${id}: ${step.toLowerCase()}`); },
-  resetAll() { try { localStorage.removeItem("nexus.audit"); localStorage.removeItem("nexus.settings"); localStorage.removeItem("nexus.rail"); } catch { /* ignore */ } set({ audit: [], bus: [], alerts: [], settings: { ...DEFAULTS }, rail: false, net: true, role: "Controller" }); actions.setScenario(start); toast("Everything reset"); },
+  resetAll() { try { localStorage.removeItem("nexus.audit"); localStorage.removeItem("nexus.settings"); localStorage.removeItem("nexus.rail"); } catch { /* ignore */ } set({ audit: [], bus: [], alerts: [], settings: { ...DEFAULTS }, rail: false, net: true, role: state.session?.role || "Controller" }); actions.setScenario(start); toast("Everything reset"); },
 
   clearAudit() { save("nexus.audit", []); set({ audit: [] }); toast("Audit trail cleared"); },
   /* Prāṇadhārā demo: heal every simulated utility; the backend publishes the recoveries and hospitals accept again. */
+  /* A real sign-in (backend with demo tokens off). The role comes from the account, not from a menu. */
+  async login(email, password) {
+    try {
+      const r = await api.login(email, password);
+      set({ session: { email: r.email, role: r.role }, authRequired: false });
+      actions.setRole(r.role); reconnect();
+      return null;
+    } catch (e) { return e.status === 401 ? "Email or password is wrong." : e.status === 429 ? "Too many attempts. Wait a minute." : "Cannot reach the server."; }
+  },
+  logout() { api.logout(); set({ session: null, role: "Controller", live: false }); actions.go("overview"); reconnect(); toast("Signed out"); },
   async restoreUtilities() { try { await api.post("/topology/reset"); set({ cascade: null, assets: {} }); toast("Utilities restored"); audit("Utilities restored", "Simulated power, water and telecom assets"); } catch { toast("The backend is not reachable"); } }
 };
 
@@ -472,7 +482,7 @@ async function sameNetwork() {
 }
 async function verifyRoute(req, dest, stamp) {
   try {
-    if (!(await sameNetwork())) return;
+    if (state.role === "Citizen" || !(await sameNetwork())) return;
     const r = await api.post("/routes/plan", { from: { lat: req.from.lat, lng: req.from.lng }, to: { lat: dest.lat, lng: dest.lng }, closures: [...activeSet()], breaks: state.breaks.map((b) => ({ lat: b.lat, lng: b.lng })), flood: state.flood.stage, conf: state.conf });
     const cur = state.route;
     if (!cur || cur.n !== stamp || !cur.nexus) return;
@@ -582,6 +592,7 @@ function applyRemote(env) {
 
 /* On (re)connect, take the shared state from the backend: it is the one picture every console and service agrees on. */
 async function hydrate() {
+  if (state.role === "Citizen") return; // a citizen device holds only its own SOS
   try {
     const [h, u, sh, ph] = await Promise.all([api.get("/hospitals"), api.get("/units"), api.get("/shelters"), api.get("/pharmacies")]);
     set((s) => {
@@ -616,7 +627,8 @@ async function hydrate() {
   } catch { /* no topology */ }
 }
 
-startLive({ getRole: () => state.role, onEnvelope: applyRemote, onStatus: (live) => set({ live }), onConnected: hydrate });
+startLive({ getRole: () => state.role, onEnvelope: applyRemote, onStatus: (live) => set({ live }), onConnected: hydrate, onLogin: (need) => { if (state.authRequired !== need) set({ authRequired: need }); } });
+api.onAuthLost(() => { set({ session: null, authRequired: true, live: false }); toast("Your session ended. Sign in again."); });
 
 /* Road network: usable at once on the built-in graph, upgraded when real roads arrive. */
 onNet(() => { set({ netInfo: describe() }); memo = { key: "", rows: null }; if (state.route) actions.computeRoute(state.route.req, true); });
