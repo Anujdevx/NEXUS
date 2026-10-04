@@ -17,3 +17,7 @@ __pycache__/
 # playwright
 test-results/
 playwright-report/
+
+# runtime state written by scripts/
+.run/
+.run-start.log

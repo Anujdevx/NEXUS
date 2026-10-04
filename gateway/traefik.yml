@@ -1,0 +1,15 @@
+# Traefik v3 static configuration for the NEXUS gateway.
+# Routes are declared by labels on each service's compose file (Docker provider).
+api:
+  dashboard: true
+  insecure: true        # dashboard on :8080 inside the container, published on host :8081 (local demo only)
+ping: {}
+log:
+  level: INFO
+entryPoints:
+  web:
+    address: ":80"      # published on host :${GATEWAY_PORT:-8000}
+providers:
+  docker:
+    exposedByDefault: false
+    network: nexus-net

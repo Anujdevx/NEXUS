@@ -1,22 +1,84 @@
-version: '3.8'
-
+# Shared infrastructure: the Traefik gateway, RabbitMQ (the Sūtra bus), MinIO (S3-compatible media) and Redis.
+# This stack creates the network nexus-net; every service stack joins it as an external network.
+# Host ports are overridable; start-all.sh picks a free GATEWAY_PORT when 8000 is taken.
+name: nexus-gateway
 services:
   traefik:
-    image: "traefik:v2.10"
-    container_name: "traefik-gateway"
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
+    image: traefik:v3.6
+    container_name: nexus-traefik
+    restart: unless-stopped
+    mem_limit: 128m
     ports:
-      - "80:80"
-      - "8080:8080"
+      - "${GATEWAY_PORT:-8000}:80"
+      - "${TRAEFIK_DASHBOARD_PORT:-8081}:8080"
     volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
-      - nexus_network
+      - nexus-net
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: nexus-rabbitmq
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-nexus}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS:-nexus-rabbit}"
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    networks:
+      - nexus-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: nexus-minio
+    restart: unless-stopped
+    mem_limit: 384m
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-nexus}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-nexus-minio-secret}"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - nexus-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-redis
+    restart: unless-stopped
+    mem_limit: 96m
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - nexus-net
 
 networks:
-  nexus_network:
-    external: true
+  nexus-net:
+    name: nexus-net
+
+volumes:
+  rabbitmq-data: {}
+  minio-data: {}
