@@ -23,7 +23,7 @@ async function raw(method, path, body, timeout = TIMEOUT_MS, withAuth = true) {
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { /* not JSON: a proxy error page means the backend is down */ }
-    if (!res.ok) { const e = new Error(data?.error?.message || res.statusText); e.status = res.status; e.data = data; throw e; }
+    if (!res.ok) { const e = new Error(data?.error?.message || res.statusText); e.status = res.status; e.data = data; e.proxy = data === null; throw e; } // a non-JSON error body comes from a proxy, not a service
     return data;
   } finally { clearTimeout(t); }
 }
@@ -36,7 +36,7 @@ async function call(method, path, body, opt = {}) {
     setLive(true);
     return r;
   } catch (e) {
-    if (e.status === undefined || e.status >= 502) setLive(false);
+    if (e.status === undefined || e.status >= 502 || e.proxy) setLive(false);
     if (e.status === 401 && token) { token = null; tokenRole = null; } // expired: next call refreshes it
     throw e;
   }
@@ -57,7 +57,7 @@ export async function ensureToken(role) {
     return token;
   } catch (e) {
     token = null; tokenRole = null;
-    if (e.status === undefined || e.status >= 500) setLive(false);
+    if (e.status === undefined || e.status >= 500 || e.proxy) setLive(false);
     throw e;
   }
 }

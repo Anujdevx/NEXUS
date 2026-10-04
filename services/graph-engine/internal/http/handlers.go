@@ -28,6 +28,7 @@ type Service struct {
 	Planner *domain.Planner
 	Topo    *domain.Topology
 	Nodes   map[string]domain.NodePos
+	World   domain.EvalWorld
 	Pub     Publisher
 	Persist func(assets []domain.Asset) // best-effort write to Neo4j
 	Secret  string
@@ -44,6 +45,7 @@ func (s *Service) Register(app *httpx.App) {
 	app.Handle("POST /api/v1/routes/plan", any(s.plan))
 	app.Handle("POST /api/v1/routes/reach", any(s.reach))
 	app.Handle("POST /api/v1/routes/times", any(s.times))
+	app.Handle("POST /api/v1/routes/evaluate", auth.RequireOrKey(s.Secret, s.Key, auth.Controller)(s.evaluate))
 	app.Handle("GET /api/v1/topology/assets", any(s.assets))
 	app.Handle("GET /api/v1/topology/blast-radius/{id}", any(s.blast))
 	app.Handle("POST /api/v1/topology/assets/{id}/fail", auth.RequireOrKey(s.Secret, s.Key, auth.Controller)(s.fail))
@@ -278,6 +280,47 @@ func (s *Service) times(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.JSON(w, 200, map[string]any{"times": res, "graph": s.Net.Describe()})
+}
+
+// evaluate runs the connectivity sweep (simulation.js) on the loaded road network under the live road state.
+// predictive-analytics exposes it as POST /api/v1/analytics/evaluation.
+func (s *Service) evaluate(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ctxIn
+		Runs    int     `json:"runs"`
+		SosLoad int     `json:"sosLoad"`
+		Seed    *uint32 `json:"seed"`
+		Relay   float64 `json:"relay"`
+		Retry   float64 `json:"retry"`
+	}
+	if !httpx.Decode(w, r, &in) {
+		return
+	}
+	p := domain.DefaultEval()
+	if in.Runs > 0 {
+		p.Runs = in.Runs
+	}
+	if in.SosLoad > 0 {
+		p.NSos = in.SosLoad
+	}
+	if in.Seed != nil {
+		p.Seed = *in.Seed
+	}
+	if in.Relay > 0 {
+		p.Relay = in.Relay
+	}
+	if in.Retry > 0 {
+		p.Retry = in.Retry
+	}
+	if p.Runs > 100 || p.NSos > 200 {
+		httpx.Error(w, http.StatusBadRequest, "bad_request", "runs must be at most 100 and sosLoad at most 200")
+		return
+	}
+	ctx := s.Planner.Context(in.override())
+	start := time.Now()
+	rows := domain.Sweep(s.Net, s.World, ctx.Blocked, ctx.Slow, p)
+	httpx.JSON(w, 200, map[string]any{"items": rows, "params": p, "graph": s.Net.Describe(), "ms": time.Since(start).Milliseconds(),
+		"note": "Simulation results, not field results. SOS load, hospital capacity and connectivity are generated."})
 }
 
 // ---- topology and cascade ----

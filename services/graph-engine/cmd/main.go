@@ -31,7 +31,10 @@ func main() {
 	var hospitals []seed.Hospital
 	var shelters []seed.Shelter
 	var scenarios map[string]seed.Scenario
-	for name, v := range map[string]any{"NODES": &nodesRaw, "EDGES": &edgesRaw, "SPEED": &speed, "WIND": &wind, "CLOSURES": &closures, "FLOOD": &flood, "HOSPITALS": &hospitals, "SHELTERS": &shelters, "SCENARIOS": &scenarios} {
+	var unitsRaw []struct{ ID, Type, Node string }
+	var simcap map[string]int
+	var caps map[string][]string
+	for name, v := range map[string]any{"UNITS": &unitsRaw, "SIMCAP": &simcap, "CAPS": &caps, "NODES": &nodesRaw, "EDGES": &edgesRaw, "SPEED": &speed, "WIND": &wind, "CLOSURES": &closures, "FLOOD": &flood, "HOSPITALS": &hospitals, "SHELTERS": &shelters, "SCENARIOS": &scenarios} {
 		if err := seed.Load(dir, name, v); err != nil {
 			app.Log.Error("seed", "err", err, "hint", "run scripts/seed.sh")
 			os.Exit(1)
@@ -72,7 +75,19 @@ func main() {
 		app.Log.Error("neo4j driver", "err", err)
 		os.Exit(1)
 	}
-	svc := &api.Service{Net: net, Planner: planner, Topo: topo, Nodes: nodes, Pub: b, Secret: config.JWTSecret(), Key: config.ServiceKey(), Origin: "graph-engine"}
+	world := domain.EvalWorld{Caps: caps, SimCap: simcap}
+	for _, h := range hospitals {
+		world.Hospitals = append(world.Hospitals, domain.EvalHospital{Lat: h.Lat, Lng: h.Lng, Lvl: h.Lvl})
+	}
+	for _, f := range flood {
+		world.Flood = append(world.Flood, domain.EvalFlood{Lat: f.Lat, Lng: f.Lng})
+	}
+	for _, u := range unitsRaw {
+		if n, ok := nodes[u.Node]; ok && u.Type == "Ambulance" {
+			world.BaseNodes = append(world.BaseNodes, [2]float64{n.Lat, n.Lng})
+		}
+	}
+	svc := &api.Service{World: world, Net: net, Planner: planner, Topo: topo, Nodes: nodes, Pub: b, Secret: config.JWTSecret(), Key: config.ServiceKey(), Origin: "graph-engine"}
 	svc.Persist = func(a []domain.Asset) {
 		if !neo.Ready() || len(a) == 0 {
 			return

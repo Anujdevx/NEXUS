@@ -32,13 +32,14 @@ type API struct {
 	Cache      *Cache
 
 	mu       sync.Mutex
+	stations map[string]float64 // latest observed rainfall per station; inference uses the maximum
 	mm       float64
 	source   string
 	inferred map[string]bool
 }
 
 func New(segs []domain.Seg, pub Publisher, secret, key, graphURL, trafficURL string, cache *Cache) *API {
-	return &API{Segs: segs, Pub: pub, Secret: secret, Key: key, GraphURL: graphURL, TrafficURL: trafficURL, HC: &http.Client{Timeout: 60 * time.Second}, Cache: cache, inferred: map[string]bool{}, source: "none"}
+	return &API{Segs: segs, Pub: pub, Secret: secret, Key: key, GraphURL: graphURL, TrafficURL: trafficURL, HC: &http.Client{Timeout: 60 * time.Second}, Cache: cache, inferred: map[string]bool{}, stations: map[string]float64{}, source: "none"}
 }
 
 func (a *API) Register(app *httpx.App) {
@@ -85,6 +86,27 @@ func (a *API) state(w http.ResponseWriter, _ *http.Request) {
 	}
 	sort.Strings(ids)
 	httpx.JSON(w, 200, map[string]any{"mm": a.mm, "source": a.source, "inferred": ids, "risk": domain.Risk(a.mm)})
+}
+
+// Reset forgets observed rainfall and the closures the model owns (scenario reload).
+func (a *API) Reset() {
+	a.mu.Lock()
+	a.stations, a.inferred, a.mm, a.source = map[string]float64{}, map[string]bool{}, 0, "none"
+	a.mu.Unlock()
+}
+
+// Observe records one station's rainfall and applies the maximum over all stations.
+func (a *API) Observe(ctx context.Context, station string, mm float64) {
+	a.mu.Lock()
+	a.stations[station] = mm
+	max := 0.0
+	for _, v := range a.stations {
+		if v > max {
+			max = v
+		}
+	}
+	a.mu.Unlock()
+	a.Apply(ctx, max, "observed")
 }
 
 // activeClosures asks traffic-control which closures are already in force (scenario or manual), so the

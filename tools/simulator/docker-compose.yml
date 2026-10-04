@@ -1,18 +1,18 @@
-version: '3.8'
-
+# Optional: run the telemetry simulator as a container on the NEXUS network.
+#   docker compose -f tools/simulator/docker-compose.yml up -d
+# Not started by scripts/start-all.sh; on a laptop `python tools/simulator/main.py telemetry` is simpler.
+name: nexus-simulator
 services:
   simulator:
     build: .
     container_name: nexus-simulator
     environment:
-      - IOT_BROKER_URL=http://iot-broker-app:8002
-      - INTERVAL_SEC=2
-      - CHAOS_MIN_SEC=30
-      - CHAOS_MAX_SEC=60
-    networks:
-      - nexus_network
+      SERVICE_KEY: "${SERVICE_KEY:-dev-service-key}"
+    command: ["--url", "http://nexus-traefik", "telemetry"]
     restart: unless-stopped
-
+    networks:
+      - nexus-net
 networks:
-  nexus_network:
+  nexus-net:
     external: true
+    name: nexus-net

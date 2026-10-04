@@ -36,7 +36,6 @@ Real, each with a named source (see the Sources screen):
 
 - 23 hospitals: name, locality, phone, ownership
 - 24 pharmacies: name, address, opening hours
-- 24 pharmacies: name, address, opening hours
 - 34 flood-prone and waterlogging localities
 - 11 landslide and subsidence points
 - 15 infrastructure records, including the 21 buildings under Nagar Nigam notice
@@ -47,7 +46,6 @@ Simulated, and labelled "Simulated" on screen:
 
 - free beds, inbound load, hospital capability (assumed from facility level)
 - pharmacy stock of the 12 listed medicines (no pharmacy publishes live inventory)
-- pharmacy stock for 12 response medicines
 - road breaks you report in a session
 - ambulances and response teams
 - shelter sites and occupancy
@@ -69,13 +67,12 @@ src/
   data/index.js         every dataset, with source keys
   engine/
     roadnet.js          Mārga: the road network, A* shortest path, breaks, nearest lookups
-    routing.js          schematic graph used only by the evaluation sweep
-    allocation.js       Ārogya: multi-constraint hospital assignment and the baseline
     hazard.js           Pūrvasūchanā: rainfall what-if to segment passability
     simulation.js       connectivity sweep on the road network
   points.js             every place a route can start or end
   i18n.js               English and Hindi strings
-  state/store.js        one store; planning, hospital and pharmacy ranking; every action publishes a bus envelope and an audit entry
+  state/store.js        one store; planning, hospital and pharmacy ranking (rankOnNet, rankPharmacies); every action publishes a bus envelope and an audit entry; applyRemote() applies envelopes from the backend
+  api/                  config.js (env), client.js (fetch wrapper, token, live flag), live.js (WebSocket with backoff)
   components/           Logo, Sidebar, Topbar, CommandPalette, Demo, Fx, MapView, Drawer, ui
   views/                one file per screen
 public/sw.js            service worker: offline shell for the citizen app
@@ -97,7 +94,7 @@ npm run build
 npm run preview        # http://localhost:4173
 ```
 
-Open the Citizen SOS screen once, then switch off Wi-Fi. The page still opens, an SOS is held on the device (and survives a reload), and it is delivered when Wi-Fi returns. Settings and the SOS screen have an Install button; Chrome and Edge also offer "Install app" in the address bar. There is no server yet, so delivery means handing the request to the in-browser bus.
+Open the Citizen SOS screen once, then switch off Wi-Fi. The page still opens, an SOS is held on the device (and survives a reload), and it is delivered when Wi-Fi returns. Settings and the SOS screen have an Install button; Chrome and Edge also offer "Install app" in the address bar. With no backend, delivery means handing the request to the in-browser bus; with the backend running it is posted to `/api/v1/sos`.
 
 ## Things to show in a demo
 
@@ -122,18 +119,43 @@ Open the Citizen SOS screen once, then switch off Wi-Fi. The page still opens, a
 ## Tests
 
 ```bash
-npm i -D @playwright/test && npx playwright install chromium   # once
+npm install && npx playwright install chromium                   # once (@playwright/test is a devDependency)
 npm run build && npm run preview                                # terminal 1
-npx playwright test                                             # terminal 2
+npx playwright test                                             # terminal 2   (NEXUS_URL=http://localhost:4173/ by default)
+
+# the same suite against the live backend (start-all.sh first) and with it down:
+NEXUS_GATEWAY=http://localhost:8000 npm run preview             # live
+NEXUS_GATEWAY=http://localhost:9    npm run preview             # backend down
 ```
 
-## Connecting the backend later
+## Running with the backend
 
-`src/state/store.js` is the only place that changes state. Each action already builds the common envelope (`entity, type, geo, status, capacity, confidence, timestamp, source`) in `publish()`. To go live:
+The console always runs on its own: the road network, hazard inference, the simulation and the hospital ranking all live in the
+browser. When the NEXUS services are up it also talks to them, and falls back to its local engine, silently, the moment they are not.
+The Topbar chip says which: **Live** (connected to the Sūtra bus) or **Local**.
 
-1. In `publish()`, also emit the envelope on your Socket.IO connection.
-2. Subscribe to the socket and call `set()` with incoming hospital, shelter, unit and incident updates.
-3. Swap `planRoute` and `rankHospitals` calls for requests to your routing and allocation services, keeping the same return shapes.
+```bash
+../scripts/start-all.sh       # from the repo root: gateway, databases, ten services, then this app
+```
+
+or, with the backend already running, `npm run dev`. The dev and preview servers proxy `/api`, `/svc` and `/ws` to the gateway
+(`NEXUS_GATEWAY`, default `http://localhost:8000`; `start-all.sh` sets it when it had to pick another port), so there is no CORS.
+
+What goes through the backend when live:
+
+- **SOS**: `POST /api/v1/sos`. The backend ranks hospitals, assigns the ambulance and publishes `assignment.dispatched`; the console applies it from the WebSocket.
+  If no assignment arrives within five seconds, the local logic runs unchanged.
+- **Every action** that publishes an envelope (breaking a road, hospital divert, bed counts, shelter changes, unit status, alerts) is also sent to `POST /api/v1/events` in the background.
+- **Incoming envelopes** (`applyRemote` in `store.js`) update hospitals, units, shelters, stock, incidents, closures, breaks, the flood stage, alerts and the lifeline cascade.
+- **Routes** are drawn by the local engine at once; when the backend graph is the same network it plans the route too and confirms it.
+- **On connect**, shared state (hospitals, units, shelters, stock, closures, breaks, SOS incidents) is read from the backend. A role switch reconnects with a token for the new role.
+- **Settings, Reset all state** resets the backend too.
+
+Environment (all optional, see `.env.example`): `VITE_API_URL` (default `/api/v1`), `VITE_WS_URL` (default `/ws/v1/live`),
+`VITE_LIVE` (`auto` | `on` | `off`; `off` never calls the backend).
+
+To rehearse the backend-down case with the stack running, start the preview with a dead gateway:
+`NEXUS_GATEWAY=http://localhost:9 npm run preview`.
 
 ## Look
 

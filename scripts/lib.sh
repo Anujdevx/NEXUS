@@ -20,6 +20,9 @@ c_fail()  { printf '\033[1;31m[fail]\033[0m %s\n' "$*" >&2; }
 compose_of() { echo "$ROOT/services/$1/docker-compose.yml"; }
 GATEWAY_COMPOSE="$ROOT/gateway/docker-compose.yml"
 
+# compose reads the root .env (secrets, ports) for every stack, however the stack is started from these scripts
+export COMPOSE_ENV_FILES="$ROOT/.env"
+
 load_env() {
   if [ -f "$ROOT/.env" ]; then set -a; . "$ROOT/.env"; set +a; fi
   if [ -f "$RUN_DIR/ports.env" ]; then set -a; . "$RUN_DIR/ports.env"; set +a; fi

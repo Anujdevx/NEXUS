@@ -15,7 +15,7 @@ import (
 	"github.com/nexus/environmental-monitor/internal/store"
 )
 
-var Keys = []string{"telemetry.raw"}
+var Keys = []string{"telemetry.raw", "scenario.loaded"}
 
 type Consumer struct {
 	Store *store.Store
@@ -34,6 +34,12 @@ type reading struct {
 }
 
 func (c *Consumer) Handle(ctx context.Context, env envelope.Envelope) error {
+	if env.Key() == "scenario.loaded" { // reload: the flood is back to 0
+		c.mu.Lock()
+		c.lastStage = 0
+		c.mu.Unlock()
+		return c.Store.SetFloodStage(ctx, 0, "reset")
+	}
 	var r reading
 	if env.Decode(&r) != nil || r.AssetID == "" {
 		return nil
