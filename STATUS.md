@@ -17,7 +17,20 @@ Written at the end of the build session (Sun 4 Oct 2026). Demo: tomorrow.
 | Simulator | `telemetry`, `sos-burst`, `chaos`, `monsoon`, all verified against the running stack |
 | Fallback | With the backend down the console runs on its local engine; the chip reads **Local** |
 
-Automated checks: see "Test results" below.
+| Access control | A Citizen token is refused (403) on every operational read; only Controllers write. `start-all.sh --secure` turns on a real sign-in (role fixed per account); a role can only open its own screens. Verified in a browser with a "phone" citizen and a "laptop" controller: the SOS appears on the laptop in under a second |
+
+## Test results
+
+| Check | Result |
+|---|---|
+| `go vet` and `go test` in all 11 Go modules | pass (A\* parity with `roadnet.js`, evaluation sweep parity with `simulation.js`, seed ports, ranking, cascade, hazard, CAP, hub role filter, auth roles) |
+| `scripts/smoke.sh --e2e` | green in demo mode and after `--secure`: health and readiness of all ten services, every read endpoint, citizen refusals, one SOS end to end, writes (closure, break and repair, alert, flood stage, media upload, cascade) and the reset |
+| Playwright, behavioural tests (route break and reroute; SOS held then delivered) | pass with the backend up **and** with it down |
+| Playwright, click-every-control, 15 screens (Incidents, Hospitals, Pharmacies, Citizen SOS, Shelters, Responders, Early warning, Infrastructure, Evaluation, Modules, Architecture, Situation report, Audit, Sources, Settings) | 15 of 15 pass backend up, 15 of 15 pass backend down |
+| Playwright, click-every-control on **Overview, Map and Routes** | **not verified**: these three screens with the 3D map hang under software WebGL on the development machine. The original, untouched console hangs the same way here, so it is the machine, not the change. Run them on a machine with a GPU |
+| Screenshots of Overview, Routes, Citizen SOS, Infrastructure | match the original; only the Live/Local chip is new |
+
+The Playwright suite needed two changes: it refuses `roads.json` and Overpass (so each page load does not rebuild the 170,000-junction graph), and one selector in the route-break test was stale (`getByLabel` matched two elements).
 
 ## Partial (works, deliberately thin; see each service's `TODO.md`)
 
@@ -30,7 +43,11 @@ Automated checks: see "Test results" below.
 
 ## Not done
 
-- No CI. No load testing. No handler-level (HTTP) tests; the tests are on the domain logic, the ports and the smoke script.
+- Playwright click-through of Overview, Map and Routes (see above). No CI. No load testing. No handler-level (HTTP) tests; the tests are on the domain logic, the ports and the smoke script.
+
+## Two ways to run it
+
+`./scripts/start-all.sh` (demo mode: instant role switch) or `./scripts/start-all.sh --secure` (real sign-in; prints the accounts and the phone URL).
 
 ## How to run it
 
