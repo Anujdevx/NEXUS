@@ -1,0 +1,15 @@
+go 1.25.0
+
+use (
+	./citizen-reporting
+	./emergency-dispatch
+	./environmental-monitor
+	./graph-engine
+	./identity-access
+	./iot-broker
+	./media-storage
+	./notification-gateway
+	./predictive-analytics
+	./shared
+	./traffic-control
+)

@@ -1,105 +1,55 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
+	"context"
 	"os"
 	"time"
+
+	"nexus/shared/bus"
+	"nexus/shared/config"
+	"nexus/shared/envelope"
+	"nexus/shared/httpx"
+	"nexus/shared/pg"
+
+	api "github.com/nexus/iot-broker/internal/http"
+	"github.com/nexus/iot-broker/internal/hub"
+	"github.com/nexus/iot-broker/internal/store"
+	"github.com/nexus/iot-broker/migrations"
 )
 
-// Placeholder response structure
-type APIResponse struct {
-	Status  string      `json:"status"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-}
-
-func writeJSON(w http.ResponseWriter, status int, resp APIResponse) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(resp)
-}
-
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8002"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app := httpx.New("iot-broker")
+
+	pool, err := pg.Connect(ctx, config.String("DATABASE_URL", "postgres://nexus:nexus@localhost:5432/events?sslmode=disable"), 90*time.Second, app.Log)
+	if err != nil {
+		app.Log.Error("database", "err", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	if err := pg.Migrate(ctx, pool, migrations.FS, ".", app.Log); err != nil {
+		app.Log.Error("migrate", "err", err)
+		os.Exit(1)
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Hello from iot-broker")
-	})
+	st := store.New(pool, app.Log)
+	go st.Run(ctx)
+	h := hub.New(app.Log)
+	b := bus.Connect(ctx, config.RabbitURL(), "iot-broker", app.Log)
+	// "#": every envelope, for the audit log and the WebSocket fan-out. Includes our own telemetry.raw.
+	b.Subscribe("q.iot-broker", []string{"#"}, func(_ context.Context, env envelope.Envelope) error {
+		st.Record(env)
+		h.Broadcast(env)
+		return nil
+	}, bus.IncludeOwn())
 
-	// POST /api/iot/generate-webhook
-	// Generates a unique webhook URL + bearer token for a given sensor type.
-	http.HandleFunc("/api/iot/generate-webhook", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, APIResponse{
-				Status:  "error",
-				Message: "Method not allowed. Use POST.",
-			})
-			return
-		}
+	app.Ready("postgres", func(c context.Context) error { return pool.Ping(c) })
+	app.Ready("rabbitmq", b.Check)
+	api.New(b, st, h, config.JWTSecret(), config.ServiceKey()).Register(app)
 
-		var body struct {
-			SensorType string `json:"sensor_type"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SensorType == "" {
-			writeJSON(w, http.StatusBadRequest, APIResponse{
-				Status:  "error",
-				Message: "Invalid JSON body. Provide 'sensor_type'.",
-			})
-			return
-		}
-
-		// TODO: Generate real unique tokens, persist to Redis/DB.
-		token := fmt.Sprintf("tok_%d", time.Now().UnixNano())
-		webhookURL := fmt.Sprintf("/api/iot/ingest/%s", body.SensorType)
-
-		log.Printf("[iot-broker] Generated webhook for sensor type: %s", body.SensorType)
-
-		writeJSON(w, http.StatusOK, APIResponse{
-			Status:  "ok",
-			Message: "Webhook provisioned.",
-			Data: map[string]string{
-				"sensor_type": body.SensorType,
-				"webhook_url": webhookURL,
-				"token":       token,
-			},
-		})
-	})
-
-	// POST /api/iot/ingest/:type — generic telemetry ingestion endpoint
-	http.HandleFunc("/api/iot/ingest/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, http.StatusMethodNotAllowed, APIResponse{
-				Status:  "error",
-				Message: "Method not allowed. Use POST.",
-			})
-			return
-		}
-
-		var payload map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			writeJSON(w, http.StatusBadRequest, APIResponse{
-				Status:  "error",
-				Message: "Invalid JSON payload.",
-			})
-			return
-		}
-
-		log.Printf("[iot-broker] Ingested telemetry: %v", payload)
-
-		// TODO: Publish payload to RabbitMQ for downstream consumers.
-		writeJSON(w, http.StatusAccepted, APIResponse{
-			Status:  "ok",
-			Message: "Telemetry accepted and queued.",
-		})
-	})
-
-	log.Printf("iot-broker listening on port %s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	if err := app.Run(ctx); err != nil {
+		app.Log.Error("server", "err", err)
+		os.Exit(1)
+	}
 }
