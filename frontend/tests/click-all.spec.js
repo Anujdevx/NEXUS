@@ -49,7 +49,7 @@ for (const view of VIEWS) {
 test("breaking a road on the route makes the planner find another way", async ({ page }) => {
   await page.goto(BASE + "#/routes");
   await page.getByRole("button", { name: "Place", exact: true }).click();
-  await page.getByLabel("Destination place").selectOption("node:rish");
+  await page.getByLabel("Destination place", { exact: true }).selectOption("node:rish");
   const first = page.locator(".steps").first();
   await expect(first).toContainText("km");
   const before = await first.innerText();
